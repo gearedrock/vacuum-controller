@@ -1,12 +1,12 @@
-//Sample using LiquidCrystal library
 #include <LiquidCrystal.h>
 
-/*******************************************************
+#include <Wire.h>
+#include <SPI.h>
+#include <Adafruit_BMP280.h>
 
-  This program will test the LCD panel and the buttons
-  Mark Bramwell, July 2010
-
-********************************************************/
+Adafruit_BMP280 bmp; // use I2C interface
+Adafruit_Sensor *bmp_temp = bmp.getTemperatureSensor();
+Adafruit_Sensor *bmp_pressure = bmp.getPressureSensor();
 
 // select the pins used on the LCD panel
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
@@ -58,7 +58,21 @@ void setup()
   lcd.begin(16, 2);              // start the library
   lcd.setCursor(0, 0);
   lcd.print("Push the buttons"); // print a simple message
+  if (!bmp.begin(BMP280_ADDRESS_ALT )) {
+    lcd.print(F("Could not find a valid BMP280 sensor, check wiring!"));
+    while (1) delay(10);
+  }
 
+  /* Default settings from datasheet. */
+  bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,     /* Operating Mode. */
+                  Adafruit_BMP280::SAMPLING_X2,     /* Temp. oversampling */
+                  Adafruit_BMP280::SAMPLING_X2,    /* Pressure oversampling */
+                  Adafruit_BMP280::FILTER_X2,      /* Filtering. */
+                  Adafruit_BMP280::STANDBY_MS_250); /* Standby time. */
+
+  // bmp_temp->printSensorDetails();
+
+  // configure motor driver
   pinMode(enB, OUTPUT);
   pinMode(in3, OUTPUT);
   pinMode(in4, OUTPUT);
@@ -68,6 +82,15 @@ void setup()
 
 void loop()
 {
+  char buf[17] = "";
+  // read sensor
+  sensors_event_t temp_event, pressure_event;
+  bmp_pressure->getEvent(&pressure_event);
+  lcd.setCursor(0, 0);
+  long pressure = (long)(pressure_event.pressure * 10);
+  snprintf(buf, 17, "Press %04d.%1d hPa", pressure / 10, pressure % 10);
+  lcd.print(buf);
+
   lcd.setCursor(9, 1);           // move cursor to second line "1" and 9 spaces over
 
   unsigned long now = millis();
@@ -96,8 +119,7 @@ void loop()
     }
   }
 
-  char buf[10] = "";
-  snprintf(buf, 10, "%2x %d %d", speed, isPressedShort, isPressedLong);
+  snprintf(buf, 16, "%2x %d %d", speed, isPressedShort, isPressedLong);
   lcd.print(buf);
 
   lcd.setCursor(0, 1);           // move to the begining of the second line
