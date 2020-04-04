@@ -24,9 +24,13 @@ int adc_key_in  = 0;
 #define enB 11
 #define in4 12
 #define in3 13
+#define MOTOR_MIN 100
 int speed = 0;
-int buttonStart = 0;
 int lastButton = btnNONE;
+unsigned long pressStart = 0;
+unsigned long currentPressStart = 0;
+bool wasPressed = false;
+bool wasPressedLong = false;
 
 // read the buttons
 int read_LCD_buttons()
@@ -65,15 +69,38 @@ void setup()
 void loop()
 {
   lcd.setCursor(9, 1);           // move cursor to second line "1" and 9 spaces over
-  lcd.print(speed, 16);      // display seconds elapsed since power-up
 
-  lcd.setCursor(0, 1);           // move to the begining of the second line
+  unsigned long now = millis();
+
   lcd_key = read_LCD_buttons();  // read the buttons
   if (lcd_key != lastButton) {
     lastButton = lcd_key;
-    buttonStart = millis();
+    currentPressStart = pressStart = now;
+    wasPressed = false;
+  }
+  bool isPressedLong = false;
+  bool isPressedShort = false;
+  if (now - pressStart > 50 && !wasPressed) {
+    isPressedShort = wasPressed = true;
+  }
+  if (now - pressStart > 1500) {
+    if (wasPressedLong) {
+      unsigned long currentPressLength = now - currentPressStart;
+      if (currentPressLength > 250) {
+        wasPressedLong = false;
+      }
+    }
+    if (!wasPressedLong) {
+      wasPressedLong = isPressedLong = true;
+      currentPressStart = now;
+    }
   }
 
+  char buf[10] = "";
+  snprintf(buf, 10, "%2x %d %d", speed, isPressedShort, isPressedLong);
+  lcd.print(buf);
+
+  lcd.setCursor(0, 1);           // move to the begining of the second line
   switch (lcd_key)               // depending on which button was pushed, we perform an action
   {
     case btnRIGHT:
@@ -89,12 +116,16 @@ void loop()
     case btnUP:
       {
         lcd.print("UP    ");
-        if (bounce % 100 == 0) {
+        if (isPressedLong) {
           speed += 10;
-        } else if (bounce % 10 == 0) {
+        } else if (isPressedShort) {
           speed += 1;
         }
-        //speed+=10;
+
+        if (speed < MOTOR_MIN) {
+          // motor will not start below this
+          speed = MOTOR_MIN;
+        }
         if (speed > 255) {
           speed = 255;
         }
@@ -103,12 +134,12 @@ void loop()
     case btnDOWN:
       {
         lcd.print("DOWN  ");
-        if (bounce % 100 == 0) {
+        if (isPressedLong) {
           speed -= 10;
-        } else if (bounce % 10 == 0) {
+        } else if (isPressedShort) {
           speed -= 1;
         }
-        if (speed < 0) {
+        if (speed < MOTOR_MIN) {
           speed = 0;
         }
         break;
