@@ -21,24 +21,44 @@ int adc_key_in  = 0;
 #define btnSELECT 4
 #define btnNONE   5
 
+#define IN_HG_HPA 33.863886666667
+#define MAX_PRESSURE 120
+#define STD_ATMOS 1013.25
+
 #define enB 11
 #define in4 12
 #define in3 13
 #define MOTOR_MIN 100
-int speed = 0;
+#include "Setting.h"
 int lastButton = btnNONE;
 unsigned long pressStart = 0;
 unsigned long currentPressStart = 0;
 bool wasPressed = false;
 bool wasPressedLong = false;
+bool running = false;
+Setting pressure = Setting("Pressure", 0, 0, 12);
+Setting Kp = Setting(String("Kp"), 2);
+Setting Ki = Setting(String("Ki"), 5);
+Setting Kd = Setting(String("Kd"), 1);
+Setting *settings[] = {&pressure, &Kp, &Ki, &Kd};
+int currentSetting = 0;
+int numSettings = 4;
 
-// read the buttons
+#include <PID_v1.h>
+
+//Define Variables we'll be connecting to
+double Setpoint, Input, Output;
+
+//Specify the links and initial tuning parameters
+PID myPID(&Input, &Output, &Setpoint, Kp.value, Ki.value, Kd.value, REVERSE);
+
+// read the buttonss
 int read_LCD_buttons()
 {
   adc_key_in = analogRead(0);      // read the value from the sensor
   // my buttons when read are centered at these valies: 0, 144, 329, 504, 741
   // we add approx 50 to those values and check to see if we are close
-  if (adc_key_in > 1000) return btnNONE; // We make this the 1st option for speed reasons since it will be the most likely result
+  if (adc_key_in > 1000) return btnNONE; // We make this the 1st option for pressure reasons since it will be the most likely result
 
   // For V1.0 comment the other threshold and use the one below:
 
@@ -78,6 +98,15 @@ void setup()
   pinMode(in4, OUTPUT);
   digitalWrite(in3, LOW);
   digitalWrite(in4, HIGH);
+
+  // pid control
+  Input = STD_ATMOS;
+  Setpoint = Input;
+  myPID.SetMode(AUTOMATIC);
+  myPID.SetOutputLimits(0, 255);
+
+  Serial.begin(9600);
+  Serial.println(F("BMP280 Sensor event test"));
 }
 
 void loop()
@@ -87,11 +116,11 @@ void loop()
   sensors_event_t temp_event, pressure_event;
   bmp_pressure->getEvent(&pressure_event);
   lcd.setCursor(0, 0);
-  long pressure = (long)(pressure_event.pressure * 10);
-  snprintf(buf, 17, "Press %04d.%1d hPa", pressure / 10, pressure % 10);
+  long sensorPressure = (long)(pressure_event.pressure / IN_HG_HPA * 100);
+  snprintf(buf, 17, "Curr: %02d.%02d\" %s        ", sensorPressure / 100, sensorPressure % 100, running ? "*" : "o");
   lcd.print(buf);
 
-  lcd.setCursor(9, 1);           // move cursor to second line "1" and 9 spaces over
+  // compute button time
 
   unsigned long now = millis();
 
@@ -119,64 +148,85 @@ void loop()
     }
   }
 
-  snprintf(buf, 16, "%2x %d %d", speed, isPressedShort, isPressedLong);
-  lcd.print(buf);
+  lcd.setCursor(0, 1);
+  lcd.print(settings[currentSetting]->getDisplayString());
 
-  lcd.setCursor(0, 1);           // move to the begining of the second line
+
   switch (lcd_key)               // depending on which button was pushed, we perform an action
   {
     case btnRIGHT:
       {
-        lcd.print("RIGHT ");
+        if (isPressedShort) {
+          currentSetting++;
+          if (currentSetting == numSettings) {
+            currentSetting = 0;
+          }
+        }
         break;
       }
     case btnLEFT:
       {
-        lcd.print("LEFT   ");
+        if (isPressedShort) {
+          currentSetting--;
+          if (currentSetting == -1) {
+            currentSetting = numSettings - 1;
+          }
+        }
         break;
       }
     case btnUP:
       {
-        lcd.print("UP    ");
-        if (isPressedLong) {
-          speed += 10;
-        } else if (isPressedShort) {
-          speed += 1;
-        }
-
-        if (speed < MOTOR_MIN) {
-          // motor will not start below this
-          speed = MOTOR_MIN;
-        }
-        if (speed > 255) {
-          speed = 255;
+        if (isPressedShort || isPressedLong) {
+          settings[currentSetting]->handlePressUp(isPressedLong);
         }
         break;
       }
     case btnDOWN:
       {
-        lcd.print("DOWN  ");
-        if (isPressedLong) {
-          speed -= 10;
-        } else if (isPressedShort) {
-          speed -= 1;
-        }
-        if (speed < MOTOR_MIN) {
-          speed = 0;
+        if (isPressedShort || isPressedLong) {
+          settings[currentSetting]->handlePressDown(isPressedLong);
         }
         break;
       }
     case btnSELECT:
       {
-        lcd.print("SELECT");
+        if (isPressedShort) {
+          running = !running;
+        }
         break;
       }
     case btnNONE:
       {
-        lcd.print("NONE  ");
         break;
       }
   }
-  analogWrite(enB, speed);
-
+  Setpoint = STD_ATMOS - (pressure.value * IN_HG_HPA / 10);
+  Input = pressure_event.pressure;
+  if (isPressedShort || isPressedLong) {
+    Serial.println("pid");
+    Serial.print("set");
+    Serial.print(Setpoint);
+    Serial.print(" in ");
+    Serial.print(Input);
+    Serial.print(" out ");
+    Serial.print(Output);
+    Serial.print(" run ");
+    Serial.print(running);
+    Serial.print(" P ");
+    Serial.print(pressure.value);
+    Serial.print(" Kp ");
+    Serial.print(Kp.value);
+    Serial.print(" Ki ");
+    Serial.print(Ki.value);
+    Serial.print(" Kd ");
+    Serial.print(Kd.value);
+    Serial.println();
+  }
+  if (running) {
+    myPID.SetTunings(Kp.value, Ki.value, Kd.value);
+    myPID.Compute();
+    analogWrite(enB, Output);
+  } else {
+    analogWrite(enB, 0);
+  }
 }
