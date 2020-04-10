@@ -10,6 +10,26 @@ Adafruit_Sensor *bmp_pressure = bmp.getPressureSensor();
 
 // select the pins used on the LCD panel
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
+byte offChar[] = {
+  B00000,
+  B00000,
+  B00100,
+  B01010,
+  B10001,
+  B01010,
+  B00100,
+  B00000
+};
+byte onChar[] = {
+  B00000,
+  B00100,
+  B00100,
+  B01110,
+  B10001,
+  B01010,
+  B00100,
+  B00000
+};
 
 // define some values used by the panel and buttons
 int lcd_key     = 0;
@@ -21,9 +41,10 @@ int adc_key_in  = 0;
 #define btnSELECT 4
 #define btnNONE   5
 
-#define IN_HG_HPA 33.863886666667
+#define IN_HG_HPA 33.8639
 #define MAX_PRESSURE 120
 #define STD_ATMOS 1013.25
+double currentAtmosPressure = STD_ATMOS;
 
 #define enB 11
 #define in4 12
@@ -75,9 +96,11 @@ int read_LCD_buttons()
 
 void setup()
 {
+  lcd.createChar(1, offChar);
+  lcd.createChar(2, onChar);
   lcd.begin(16, 2);              // start the library
   lcd.setCursor(0, 0);
-  lcd.print("Push the buttons"); // print a simple message
+  lcd.print("Reading pressure");
   if (!bmp.begin(BMP280_ADDRESS_ALT )) {
     lcd.print(F("Could not find a valid BMP280 sensor, check wiring!"));
     while (1) delay(10);
@@ -85,9 +108,9 @@ void setup()
 
   /* Default settings from datasheet. */
   bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,     /* Operating Mode. */
-                  Adafruit_BMP280::SAMPLING_X2,     /* Temp. oversampling */
-                  Adafruit_BMP280::SAMPLING_X2,    /* Pressure oversampling */
-                  Adafruit_BMP280::FILTER_X2,      /* Filtering. */
+                  Adafruit_BMP280::SAMPLING_X1,     /* Temp. oversampling */
+                  Adafruit_BMP280::SAMPLING_X1,    /* Pressure oversampling */
+                  Adafruit_BMP280::FILTER_OFF,      /* Filtering. */
                   Adafruit_BMP280::STANDBY_MS_250); /* Standby time. */
 
   // bmp_temp->printSensorDetails();
@@ -107,17 +130,39 @@ void setup()
 
   Serial.begin(9600);
   Serial.println(F("BMP280 Sensor event test"));
+
+  // average two pressure readings
+  double pressure = bmp.readPressure();
+  delay(1200);
+  pressure = (pressure + bmp.readPressure()) / 2;
+  // set current pressure to reading (plus a bit of fuzz)
+  currentAtmosPressure = pressure / 100 + .5;
+  // check if reading is more +/- 2 in mercury from std pressure - if so ignore it
+  if (currentAtmosPressure > STD_ATMOS + IN_HG_HPA + IN_HG_HPA ||
+      currentAtmosPressure < STD_ATMOS - IN_HG_HPA - IN_HG_HPA) {
+    Serial.println("pressure bad");
+    Serial.println(currentAtmosPressure);
+    currentAtmosPressure = STD_ATMOS;
+    lcd.print("Current pressure bad");
+    delay(1000);
+  }
+  Serial.println(currentAtmosPressure);
 }
 
 void loop()
 {
   char buf[17] = "";
   // read sensor
-  sensors_event_t temp_event, pressure_event;
+  sensors_event_t pressure_event;
   bmp_pressure->getEvent(&pressure_event);
   lcd.setCursor(0, 0);
   long sensorPressure = (long)(pressure_event.pressure / IN_HG_HPA * 100);
-  snprintf(buf, 17, "Curr: %02d.%02d\" %s        ", sensorPressure / 100, sensorPressure % 100, running ? "*" : "o");
+  int press1 = (int)(sensorPressure/100);
+  int press2 = (int)(sensorPressure%100);
+  snprintf(buf, 17, "Curr: %02d.%02d %c    ",
+           (press1),
+           (press2),
+           (running?'\x02':'\x01'));
   lcd.print(buf);
 
   // compute button time
@@ -200,10 +245,10 @@ void loop()
         break;
       }
   }
-  Setpoint = STD_ATMOS - (pressure.value * IN_HG_HPA / 10);
+  Setpoint = currentAtmosPressure - (pressure.value * IN_HG_HPA);
   Input = pressure_event.pressure;
   if (isPressedShort || isPressedLong) {
-    Serial.println("pid");
+    Serial.println(buf);
     Serial.print("set");
     Serial.print(Setpoint);
     Serial.print(" in ");
