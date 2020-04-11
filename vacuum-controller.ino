@@ -12,22 +12,22 @@ Adafruit_Sensor *bmp_pressure = bmp.getPressureSensor();
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 byte offChar[] = {
   B00000,
-  B00000,
-  B00100,
-  B01010,
-  B10001,
-  B01010,
-  B00100,
+  B11011,
+  B11011,
+  B11011,
+  B11011,
+  B11011,
+  B11011,
   B00000
 };
 byte onChar[] = {
   B00000,
-  B00100,
-  B00100,
+  B01000,
+  B01100,
   B01110,
-  B10001,
-  B01010,
-  B00100,
+  B01110,
+  B01100,
+  B01000,
   B00000
 };
 
@@ -57,13 +57,22 @@ unsigned long currentPressStart = 0;
 bool wasPressed = false;
 bool wasPressedLong = false;
 bool running = false;
-Setting pressure = Setting("Pressure", 0, 0, 12);
+int interval = 0;
+long intervalRemaining = 0;
+long pauseRemaining = 0;
+
+Setting pressure = Setting("Pressure", 0, 0, 12, true);
+Setting rampTime = Setting("Ramp", 2);
+Setting intervalTime = Setting("Interval", 10);
+Setting pauseTime = Setting("Pause", 2);
+Setting pausePressure = Setting("Pause Pr", 0);
 Setting Kp = Setting(String("Kp"), 2);
 Setting Ki = Setting(String("Ki"), 5);
 Setting Kd = Setting(String("Kd"), 1);
-Setting *settings[] = {&pressure, &Kp, &Ki, &Kd};
+Setting *settings[] = {&pressure, &rampTime, &intervalTime, &pauseTime, &pausePressure, &Kp, &Ki, &Kd};
 int currentSetting = 0;
-int numSettings = 4;
+int numSettings = 8;
+int eepromStart = 0;
 
 #include <PID_v1.h>
 
@@ -108,9 +117,9 @@ void setup()
 
   /* Default settings from datasheet. */
   bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,     /* Operating Mode. */
-                  Adafruit_BMP280::SAMPLING_X1,     /* Temp. oversampling */
-                  Adafruit_BMP280::SAMPLING_X1,    /* Pressure oversampling */
-                  Adafruit_BMP280::FILTER_OFF,      /* Filtering. */
+                  Adafruit_BMP280::SAMPLING_X16,     /* Temp. oversampling */
+                  Adafruit_BMP280::SAMPLING_X16,    /* Pressure oversampling */
+                  Adafruit_BMP280::FILTER_X2,      /* Filtering. */
                   Adafruit_BMP280::STANDBY_MS_250); /* Standby time. */
 
   // bmp_temp->printSensorDetails();
@@ -126,17 +135,17 @@ void setup()
   Input = STD_ATMOS;
   Setpoint = Input;
   myPID.SetMode(AUTOMATIC);
-  myPID.SetOutputLimits(0, 255);
+  myPID.SetOutputLimits(MOTOR_MIN, 255);
 
   Serial.begin(9600);
   Serial.println(F("BMP280 Sensor event test"));
 
   // average two pressure readings
-  double pressure = bmp.readPressure();
+  double atmosPressure = bmp.readPressure();
   delay(1200);
-  pressure = (pressure + bmp.readPressure()) / 2;
+  atmosPressure = (atmosPressure + bmp.readPressure()) / 2;
   // set current pressure to reading (plus a bit of fuzz)
-  currentAtmosPressure = pressure / 100 + .5;
+  currentAtmosPressure = atmosPressure / 100 + .5;
   // check if reading is more +/- 2 in mercury from std pressure - if so ignore it
   if (currentAtmosPressure > STD_ATMOS + IN_HG_HPA + IN_HG_HPA ||
       currentAtmosPressure < STD_ATMOS - IN_HG_HPA - IN_HG_HPA) {
@@ -147,6 +156,10 @@ void setup()
     delay(1000);
   }
   Serial.println(currentAtmosPressure);
+  Serial.println("Settings");
+  for (int i = 0; i < numSettings; ++i) {
+    settings[i]->init();
+  }
 }
 
 void loop()
@@ -157,12 +170,12 @@ void loop()
   bmp_pressure->getEvent(&pressure_event);
   lcd.setCursor(0, 0);
   long sensorPressure = (long)(pressure_event.pressure / IN_HG_HPA * 100);
-  int press1 = (int)(sensorPressure/100);
-  int press2 = (int)(sensorPressure%100);
+  int press1 = (int)(sensorPressure / 100);
+  int press2 = (int)(sensorPressure % 100);
   snprintf(buf, 17, "Curr: %02d.%02d %c    ",
            (press1),
            (press2),
-           (running?'\x02':'\x01'));
+           (running ? '\x02' : '\x01'));
   lcd.print(buf);
 
   // compute button time
@@ -242,12 +255,18 @@ void loop()
       }
     case btnNONE:
       {
+        if (isPressedLong) {
+          // update settings
+          for (int i = 0; i < numSettings; ++i) {
+            settings[i]->handleUpdate();
+          }
+        }
         break;
       }
   }
   Setpoint = currentAtmosPressure - (pressure.value * IN_HG_HPA);
   Input = pressure_event.pressure;
-  if (isPressedShort || isPressedLong) {
+  if (false && (isPressedShort || isPressedLong)) {
     Serial.println(buf);
     Serial.print("set");
     Serial.print(Setpoint);
@@ -270,6 +289,9 @@ void loop()
   if (running) {
     myPID.SetTunings(Kp.value, Ki.value, Kd.value);
     myPID.Compute();
+    if (Output <= MOTOR_MIN) {
+      Output = 0;
+    }
     analogWrite(enB, Output);
   } else {
     analogWrite(enB, 0);
