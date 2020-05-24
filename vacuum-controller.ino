@@ -49,7 +49,7 @@ double currentAtmosPressure = STD_ATMOS;
 #define enB 11
 #define in4 12
 #define in3 13
-#define MOTOR_MIN 100
+#define MOTOR_MIN 1
 #include "Setting.h"
 int lastButton = btnNONE;
 unsigned long pressStart = 0;
@@ -62,16 +62,17 @@ long intervalRemaining = 0;
 long pauseRemaining = 0;
 
 Setting pressure = Setting("Pressure", 0, 0, 12, true);
-Setting rampTime = Setting("Ramp", 2);
-Setting intervalTime = Setting("Interval", 10);
-Setting pauseTime = Setting("Pause", 2);
-Setting pausePressure = Setting("Pause Pr", 0);
+Setting rampType = Setting("Norm/Wave/Ramp", 0, 0, 2, true, 1);
+Setting rampPres = Setting("Ramp Pr", 2, 0, 5, true);
+Setting intervalTime = Setting("Interval Tm", 10, 0, 100, true, 0.5, 5);
+Setting pauseTime = Setting("Pause Tm", 2, 0, 100, true, 0.5, 5);
+Setting pausePressure = Setting("Pause Pr", 0, 0, 5, true);
 Setting Kp = Setting(String("Kp"), 2);
 Setting Ki = Setting(String("Ki"), 5);
 Setting Kd = Setting(String("Kd"), 1);
-Setting *settings[] = {&pressure, &rampTime, &intervalTime, &pauseTime, &pausePressure, &Kp, &Ki, &Kd};
+Setting *settings[] = {&pressure, &rampType, &rampPres, &intervalTime, &pauseTime, &pausePressure, &Kp, &Ki, &Kd};
 int currentSetting = 0;
-int numSettings = 8;
+int numSettings = 9;
 int eepromStart = 0;
 
 #include <PID_v1.h>
@@ -105,14 +106,20 @@ int read_LCD_buttons()
 
 void setup()
 {
+
+  Serial.begin(9600);
+  Serial.println(F("BMP280 Sensor event test"));
   lcd.createChar(1, offChar);
   lcd.createChar(2, onChar);
   lcd.begin(16, 2);              // start the library
   lcd.setCursor(0, 0);
   lcd.print("Reading pressure");
-  if (!bmp.begin(BMP280_ADDRESS_ALT )) {
-    lcd.print(F("Could not find a valid BMP280 sensor, check wiring!"));
-    while (1) delay(10);
+  while (!bmp.begin(BMP280_ADDRESS_ALT )) {
+    delay(100);
+    lcd.setCursor(0, 1);
+    lcd.print("No Sensor!");
+    Serial.println(F("No Sensor!"));
+    delay(1000);
   }
 
   /* Default settings from datasheet. */
@@ -128,6 +135,8 @@ void setup()
   pinMode(enB, OUTPUT);
   pinMode(in3, OUTPUT);
   pinMode(in4, OUTPUT);
+//  digitalWrite(in3, HIGH);
+//  digitalWrite(in4, LOW);
   digitalWrite(in3, LOW);
   digitalWrite(in4, HIGH);
 
@@ -136,9 +145,6 @@ void setup()
   Setpoint = Input;
   myPID.SetMode(AUTOMATIC);
   myPID.SetOutputLimits(MOTOR_MIN, 255);
-
-  Serial.begin(9600);
-  Serial.println(F("BMP280 Sensor event test"));
 
   // average two pressure readings
   double atmosPressure = bmp.readPressure();
@@ -152,6 +158,7 @@ void setup()
     Serial.println("pressure bad");
     Serial.println(currentAtmosPressure);
     currentAtmosPressure = STD_ATMOS;
+    lcd.setCursor(0, 1);
     lcd.print("Current pressure bad");
     delay(1000);
   }
@@ -172,9 +179,14 @@ void loop()
   long sensorPressure = (long)(pressure_event.pressure / IN_HG_HPA * 100);
   int press1 = (int)(sensorPressure / 100);
   int press2 = (int)(sensorPressure % 100);
-  snprintf(buf, 17, "Curr: %02d.%02d %c    ",
+  long vacPress = (long)((currentAtmosPressure - pressure_event.pressure) / IN_HG_HPA * 10);
+  int vacP1 = (int)(vacPress / 10);
+  int vacP2 = (int)(vacPress % 10);
+  snprintf(buf, 17, "Curr:%02d.%02d(%01d.%01d)%c",
            (press1),
            (press2),
+           (vacP1),
+           (vacP2),
            (running ? '\x02' : '\x01'));
   lcd.print(buf);
 

@@ -15,8 +15,10 @@ void Setting::init() {
   if (persist) {
     double setValue;
     EEPROM.get(address, setValue);
-    Serial.print("ad");
+    Serial.print(name);
+    Serial.print(" ad ");
     Serial.print(address);
+    Serial.print(" sv ");
     Serial.print(setValue);
     Serial.println();
     if (setValue <= maxx && setValue >= minn) {
@@ -71,9 +73,9 @@ void Setting::handleUpdate() {
   if (persist && previous != value) {
     Serial.print("address");
     Serial.print(address);
-    Serial.print("v");
+    Serial.print(" v ");
     Serial.print(value);
-    Serial.print("p");
+    Serial.print(" p ");
     Serial.println(previous);
     EEPROM.put(address, value);
     previous = value;
