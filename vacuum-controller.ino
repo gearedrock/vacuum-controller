@@ -4,6 +4,8 @@
 #include <SPI.h>
 #include <Adafruit_BMP280.h>
 
+#include <avr/wdt.h>
+
 Adafruit_BMP280 bmp; // use I2C interface
 Adafruit_Sensor *bmp_temp = bmp.getTemperatureSensor();
 Adafruit_Sensor *bmp_pressure = bmp.getPressureSensor();
@@ -45,8 +47,9 @@ int adc_key_in  = 0;
 #define MAX_PRESSURE 120
 double currentAtmosPressure = SENSORS_PRESSURE_SEALEVELHPA;
 #define MAX_READINGS 10
-double readings[MAX_READINGS] = {0,0,0,0,0,0,0,0,0,0};
+double readings[MAX_READINGS] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 int currReading = 0;
+boolean readingFault = false;
 
 #define enB 11
 #define in4 12
@@ -137,8 +140,8 @@ void setup()
   pinMode(enB, OUTPUT);
   pinMode(in3, OUTPUT);
   pinMode(in4, OUTPUT);
-//  digitalWrite(in3, HIGH);
-//  digitalWrite(in4, LOW);
+  //  digitalWrite(in3, HIGH);
+  //  digitalWrite(in4, LOW);
   digitalWrite(in3, LOW);
   digitalWrite(in4, HIGH);
 
@@ -169,6 +172,23 @@ void setup()
   for (int i = 0; i < numSettings; ++i) {
     settings[i]->init();
   }
+
+  // setup watchdog
+  wdt_enable(WDTO_250MS);
+}
+
+boolean checkFault(double sensorPressure) {
+  // check pressure fault
+  readings[currReading++] = sensorPressure;
+  if (currReading > MAX_READINGS) {
+    currReading = 0;
+  }
+  for (int i = 1; i < MAX_READINGS; ++i) {
+    if (readings[0] != readings[i]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 void loop()
@@ -191,9 +211,6 @@ void loop()
            (vacP2),
            (running ? '\x02' : '\x01'));
   lcd.print(buf);
-
-  // check pressure fault
-  
 
   // compute button time
 
@@ -221,6 +238,22 @@ void loop()
       wasPressedLong = isPressedLong = true;
       currentPressStart = now;
     }
+  }
+
+  wdt_reset();
+  // every 250ms (button press) check for sane pressures
+  if ((isPressedShort || isPressedLong)) {
+    readingFault = checkFault(pressure_event.pressure);
+    if (readingFault) {
+      lcd.setCursor(0, 1);
+      lcd.print("No Sensor Change!");
+      // stop the motor
+      analogWrite(enB, 0);
+    }
+  }
+  if (readingFault) {
+    // stop processing on fault
+    return;
   }
 
   lcd.setCursor(0, 1);
