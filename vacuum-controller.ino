@@ -43,8 +43,10 @@ int adc_key_in  = 0;
 
 #define IN_HG_HPA 33.8639
 #define MAX_PRESSURE 120
-#define STD_ATMOS 1013.25
-double currentAtmosPressure = STD_ATMOS;
+double currentAtmosPressure = SENSORS_PRESSURE_SEALEVELHPA;
+#define MAX_READINGS 10
+double readings[MAX_READINGS] = {0,0,0,0,0,0,0,0,0,0};
+int currReading = 0;
 
 #define enB 11
 #define in4 12
@@ -72,7 +74,7 @@ Setting Ki = Setting(String("Ki"), 5);
 Setting Kd = Setting(String("Kd"), 1);
 Setting *settings[] = {&pressure, &rampType, &rampPres, &intervalTime, &pauseTime, &pausePressure, &Kp, &Ki, &Kd};
 int currentSetting = 0;
-int numSettings = 9;
+#define numSettings 9
 int eepromStart = 0;
 
 #include <PID_v1.h>
@@ -141,7 +143,7 @@ void setup()
   digitalWrite(in4, HIGH);
 
   // pid control
-  Input = STD_ATMOS;
+  Input = SENSORS_PRESSURE_SEALEVELHPA;
   Setpoint = Input;
   myPID.SetMode(AUTOMATIC);
   myPID.SetOutputLimits(MOTOR_MIN, 255);
@@ -153,11 +155,11 @@ void setup()
   // set current pressure to reading (plus a bit of fuzz)
   currentAtmosPressure = atmosPressure / 100 + .5;
   // check if reading is more +/- 2 in mercury from std pressure - if so ignore it
-  if (currentAtmosPressure > STD_ATMOS + IN_HG_HPA + IN_HG_HPA ||
-      currentAtmosPressure < STD_ATMOS - IN_HG_HPA - IN_HG_HPA) {
+  if (currentAtmosPressure > SENSORS_PRESSURE_SEALEVELHPA + IN_HG_HPA + IN_HG_HPA ||
+      currentAtmosPressure < SENSORS_PRESSURE_SEALEVELHPA - IN_HG_HPA - IN_HG_HPA) {
     Serial.println("pressure bad");
     Serial.println(currentAtmosPressure);
-    currentAtmosPressure = STD_ATMOS;
+    currentAtmosPressure = SENSORS_PRESSURE_SEALEVELHPA;
     lcd.setCursor(0, 1);
     lcd.print("Current pressure bad");
     delay(1000);
@@ -189,6 +191,9 @@ void loop()
            (vacP2),
            (running ? '\x02' : '\x01'));
   lcd.print(buf);
+
+  // check pressure fault
+  
 
   // compute button time
 
