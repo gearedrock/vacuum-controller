@@ -18,8 +18,19 @@ Setting::Setting(String name,
     : name(name), value(value), minn(min), maxx(max), slowStep(slowStep),
       fastStep(fastStep), displayPrecision(displayPrecision), previous(value),
       persist(persist) {
+  values = NULL;
   address = startAddress++;
 }
+
+Setting::Setting(String name,
+                 String *values,
+                 double value,
+                 double min,
+                 double max,
+                 bool persist)
+    : name(name), value(value), minn(min), maxx(max), values(values),
+      slowStep(1), fastStep(1), displayPrecision(0), previous(value),
+      persist(persist) {}
 
 void Setting::init() {
   if (persist) {
@@ -66,10 +77,15 @@ double Setting::handlePressDown(boolean isLongPress) {
 }
 
 String Setting::getDisplayString() {
-  // format number
-  char *num = toPrecision(numBuf, 8, value, displayPrecision);
-  // display name number with extra spaces to clear the line
-  snprintf(buf, 17, "%s %s           ", name.c_str(), num);
+  if (values != NULL) {
+    String currVal = values[(long)value];
+    snprintf(buf, 17, "%s %s           ", name.c_str(), currVal.c_str());
+  } else {
+    // format number
+    char *num = toPrecision(numBuf, 8, value, displayPrecision);
+    // display name number with extra spaces to clear the line
+    snprintf(buf, 17, "%s %s           ", name.c_str(), num);
+  }
   return String(buf);
 }
 
@@ -77,9 +93,9 @@ void Setting::handleUpdate() {
   if (persist && previous != value) {
     Serial.print("address");
     Serial.print(address);
-    Serial.print(" v ");
+    Serial.print(" val ");
     Serial.print(value);
-    Serial.print(" p ");
+    Serial.print(" prev ");
     Serial.println(previous);
     EEPROM.put(address, value);
     previous = value;

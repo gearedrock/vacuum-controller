@@ -7,6 +7,7 @@ public:
   int displayPrecision;
   int address;
   bool persist;
+  String *values;
   Setting(String name,
           double value,
           double min = 0,
@@ -15,6 +16,15 @@ public:
           double slowStep = 0.1,
           double fastStep = 1,
           int displayPrecision = 1);
+
+  Setting(String name,
+          // display values
+          String *values,
+          double value,
+          double min = 0,
+          // must match values length!
+          double max = 255,
+          bool persist = false);
   double handlePressUp(boolean isLongPress);
   double handlePressDown(boolean isLongPress);
   String getDisplayString();

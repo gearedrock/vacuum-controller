@@ -49,8 +49,9 @@ int interval = 0;
 long intervalRemaining = 0;
 long pauseRemaining = 0;
 
+String modes[] = {"Constant", "Interval", "Ramp"};
 Setting pressure = Setting("Pressure", 0, 0, 12, true);
-Setting rampType = Setting("Norm/Wave/Ramp", 0, 0, 2, true, 1);
+Setting rampType = Setting("Mode", modes, 0, 0, 2, true);
 Setting rampPres = Setting("Ramp Pr", 2, 0, 5, true);
 Setting intervalTime = Setting("Interval Tm", 10, 0, 100, true, 0.5, 5);
 Setting pauseTime = Setting("Pause Tm", 2, 0, 100, true, 0.5, 5);
