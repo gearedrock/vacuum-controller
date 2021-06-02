@@ -174,7 +174,7 @@ void setup()
   }
 
   // setup watchdog
-  wdt_enable(WDTO_250MS);
+  wdt_enable(WDTO_1S);
 }
 
 boolean checkFault(double sensorPressure) {
@@ -188,6 +188,7 @@ boolean checkFault(double sensorPressure) {
       return false;
     }
   }
+  Serial.println("pressure bad");
   return true;
 }
 
@@ -238,6 +239,14 @@ void loop()
       wasPressedLong = isPressedLong = true;
       currentPressStart = now;
     }
+  }
+  if (false && (isPressedLong || isPressedShort)) {
+    Serial.print("key");
+    Serial.print(lcd_key);
+    Serial.print(" short ");
+    Serial.print(isPressedShort);
+    Serial.print(" long ");
+    Serial.println(isPressedLong);
   }
 
   wdt_reset();

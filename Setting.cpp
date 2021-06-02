@@ -16,9 +16,9 @@ void Setting::init() {
     double setValue;
     EEPROM.get(address, setValue);
     Serial.print(name);
-    Serial.print(" ad ");
+    Serial.print(" addr ");
     Serial.print(address);
-    Serial.print(" sv ");
+    Serial.print(" setv ");
     Serial.print(setValue);
     Serial.println();
     if (setValue <= maxx && setValue >= minn) {
