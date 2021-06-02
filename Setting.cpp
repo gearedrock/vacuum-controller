@@ -5,9 +5,17 @@
 char buf[17] = "";
 int startAddress;
 
-Setting::Setting(String name, double value, double min, double max, bool persist, double slowStep, double fastStep, int displayPrecision) :
-  name(name), value(value), minn(min), maxx(max), slowStep(slowStep), fastStep(fastStep), displayPrecision(displayPrecision), previous(value), persist(persist)
-{
+Setting::Setting(String name,
+                 double value,
+                 double min,
+                 double max,
+                 bool persist,
+                 double slowStep,
+                 double fastStep,
+                 int displayPrecision)
+    : name(name), value(value), minn(min), maxx(max), slowStep(slowStep),
+      fastStep(fastStep), displayPrecision(displayPrecision), previous(value),
+      persist(persist) {
   address = startAddress++;
 }
 
@@ -61,8 +69,7 @@ String Setting::getDisplayString() {
   } else if (displayPrecision == 1) {
     int v = (int)(value * 10);
     snprintf(buf, 17, "%s %d.%d           ", name.c_str(), v / 10, v % 10);
-  }
-  else {
+  } else {
     int v = (int)(value * 100);
     snprintf(buf, 17, "%s %d.%02d           ", name.c_str(), v / 100, v % 100);
   }

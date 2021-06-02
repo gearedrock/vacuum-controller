@@ -1,8 +1,8 @@
 #include <LiquidCrystal.h>
 
-#include <Wire.h>
-#include <SPI.h>
 #include <Adafruit_BMP280.h>
+#include <SPI.h>
+#include <Wire.h>
 
 #include <avr/wdt.h>
 
@@ -12,36 +12,20 @@ Adafruit_Sensor *bmp_pressure = bmp.getPressureSensor();
 
 // select the pins used on the LCD panel
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
-byte offChar[] = {
-  B00000,
-  B11011,
-  B11011,
-  B11011,
-  B11011,
-  B11011,
-  B11011,
-  B00000
-};
-byte onChar[] = {
-  B00000,
-  B01000,
-  B01100,
-  B01110,
-  B01110,
-  B01100,
-  B01000,
-  B00000
-};
+byte offChar[] =
+    {B00000, B11011, B11011, B11011, B11011, B11011, B11011, B00000};
+byte onChar[] =
+    {B00000, B01000, B01100, B01110, B01110, B01100, B01000, B00000};
 
 // define some values used by the panel and buttons
-int lcd_key     = 0;
-int adc_key_in  = 0;
-#define btnRIGHT  0
-#define btnUP     1
-#define btnDOWN   2
-#define btnLEFT   3
+int lcd_key = 0;
+int adc_key_in = 0;
+#define btnRIGHT 0
+#define btnUP 1
+#define btnDOWN 2
+#define btnLEFT 3
 #define btnSELECT 4
-#define btnNONE   5
+#define btnNONE 5
 
 #define IN_HG_HPA 33.8639
 #define MAX_PRESSURE 120
@@ -75,51 +59,57 @@ Setting pausePressure = Setting("Pause Pr", 0, 0, 5, true);
 Setting Kp = Setting(String("Kp"), 2);
 Setting Ki = Setting(String("Ki"), 5);
 Setting Kd = Setting(String("Kd"), 1);
-Setting *settings[] = {&pressure, &rampType, &rampPres, &intervalTime, &pauseTime, &pausePressure, &Kp, &Ki, &Kd};
+Setting *settings[] = {&pressure,
+                       &rampType,
+                       &rampPres,
+                       &intervalTime,
+                       &pauseTime,
+                       &pausePressure,
+                       &Kp,
+                       &Ki,
+                       &Kd};
 int currentSetting = 0;
 #define numSettings 9
 int eepromStart = 0;
 
 #include <PID_v1.h>
 
-//Define Variables we'll be connecting to
+// Define Variables we'll be connecting to
 double Setpoint, Input, Output;
 
-//Specify the links and initial tuning parameters
+// Specify the links and initial tuning parameters
 PID myPID(&Input, &Output, &Setpoint, Kp.value, Ki.value, Kd.value, REVERSE);
 
 // read the buttonss
-int read_LCD_buttons()
-{
-  adc_key_in = analogRead(0);      // read the value from the sensor
+int read_LCD_buttons() {
+  adc_key_in = analogRead(0); // read the value from the sensor
   // my buttons when read are centered at these valies: 0, 144, 329, 504, 741
   // we add approx 50 to those values and check to see if we are close
-  if (adc_key_in > 1000) return btnNONE; // We make this the 1st option for pressure reasons since it will be the most likely result
+  if (adc_key_in > 1000)
+    return btnNONE; // We make this the 1st option for pressure reasons since it
+                    // will be the most likely result
 
   // For V1.0 comment the other threshold and use the one below:
 
-  if (adc_key_in < 50)   return btnRIGHT;
-  if (adc_key_in < 195)  return btnUP;
-  if (adc_key_in < 380)  return btnDOWN;
-  if (adc_key_in < 555)  return btnLEFT;
-  if (adc_key_in < 790)  return btnSELECT;
+  if (adc_key_in < 50) return btnRIGHT;
+  if (adc_key_in < 195) return btnUP;
+  if (adc_key_in < 380) return btnDOWN;
+  if (adc_key_in < 555) return btnLEFT;
+  if (adc_key_in < 790) return btnSELECT;
 
-
-
-  return btnNONE;  // when all others fail, return this...
+  return btnNONE; // when all others fail, return this...
 }
 
-void setup()
-{
+void setup() {
 
   Serial.begin(9600);
   Serial.println(F("BMP280 Sensor event test"));
   lcd.createChar(1, offChar);
   lcd.createChar(2, onChar);
-  lcd.begin(16, 2);              // start the library
+  lcd.begin(16, 2); // start the library
   lcd.setCursor(0, 0);
   lcd.print("Reading pressure");
-  while (!bmp.begin(BMP280_ADDRESS_ALT )) {
+  while (!bmp.begin(BMP280_ADDRESS_ALT)) {
     delay(100);
     lcd.setCursor(0, 1);
     lcd.print("No Sensor!");
@@ -129,9 +119,9 @@ void setup()
 
   /* Default settings from datasheet. */
   bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,     /* Operating Mode. */
-                  Adafruit_BMP280::SAMPLING_X16,     /* Temp. oversampling */
+                  Adafruit_BMP280::SAMPLING_X16,    /* Temp. oversampling */
                   Adafruit_BMP280::SAMPLING_X16,    /* Pressure oversampling */
-                  Adafruit_BMP280::FILTER_X2,      /* Filtering. */
+                  Adafruit_BMP280::FILTER_X2,       /* Filtering. */
                   Adafruit_BMP280::STANDBY_MS_250); /* Standby time. */
 
   // bmp_temp->printSensorDetails();
@@ -157,9 +147,12 @@ void setup()
   atmosPressure = (atmosPressure + bmp.readPressure()) / 2;
   // set current pressure to reading (plus a bit of fuzz)
   currentAtmosPressure = atmosPressure / 100 + .5;
-  // check if reading is more +/- 2 in mercury from std pressure - if so ignore it
-  if (currentAtmosPressure > SENSORS_PRESSURE_SEALEVELHPA + IN_HG_HPA + IN_HG_HPA ||
-      currentAtmosPressure < SENSORS_PRESSURE_SEALEVELHPA - IN_HG_HPA - IN_HG_HPA) {
+  // check if reading is more +/- 2 in mercury from std pressure - if so ignore
+  // it
+  if (currentAtmosPressure >
+          SENSORS_PRESSURE_SEALEVELHPA + IN_HG_HPA + IN_HG_HPA ||
+      currentAtmosPressure <
+          SENSORS_PRESSURE_SEALEVELHPA - IN_HG_HPA - IN_HG_HPA) {
     Serial.println("pressure bad");
     Serial.println(currentAtmosPressure);
     currentAtmosPressure = SENSORS_PRESSURE_SEALEVELHPA;
@@ -192,8 +185,7 @@ boolean checkFault(double sensorPressure) {
   return true;
 }
 
-void loop()
-{
+void loop() {
   char buf[17] = "";
   // read sensor
   sensors_event_t pressure_event;
@@ -202,10 +194,13 @@ void loop()
   long sensorPressure = (long)(pressure_event.pressure / IN_HG_HPA * 100);
   int press1 = (int)(sensorPressure / 100);
   int press2 = (int)(sensorPressure % 100);
-  long vacPress = (long)((currentAtmosPressure - pressure_event.pressure) / IN_HG_HPA * 10);
+  long vacPress =
+      (long)((currentAtmosPressure - pressure_event.pressure) / IN_HG_HPA * 10);
   int vacP1 = (int)(vacPress / 10);
   int vacP2 = (int)(vacPress % 10);
-  snprintf(buf, 17, "Curr:%02d.%02d(%01d.%01d)%c",
+  snprintf(buf,
+           17,
+           "Curr:%02d.%02d(%01d.%01d)%c",
            (press1),
            (press2),
            (vacP1),
@@ -217,7 +212,7 @@ void loop()
 
   unsigned long now = millis();
 
-  lcd_key = read_LCD_buttons();  // read the buttons
+  lcd_key = read_LCD_buttons(); // read the buttons
   if (lcd_key != lastButton) {
     lastButton = lcd_key;
     currentPressStart = pressStart = now;
@@ -268,60 +263,53 @@ void loop()
   lcd.setCursor(0, 1);
   lcd.print(settings[currentSetting]->getDisplayString());
 
-
-  switch (lcd_key)               // depending on which button was pushed, we perform an action
+  switch (lcd_key) // depending on which button was pushed, we perform an action
   {
-    case btnRIGHT:
-      {
-        if (isPressedShort) {
-          currentSetting++;
-          if (currentSetting == numSettings) {
-            currentSetting = 0;
-          }
+    case btnRIGHT: {
+      if (isPressedShort) {
+        currentSetting++;
+        if (currentSetting == numSettings) {
+          currentSetting = 0;
         }
-        break;
       }
-    case btnLEFT:
-      {
-        if (isPressedShort) {
-          currentSetting--;
-          if (currentSetting == -1) {
-            currentSetting = numSettings - 1;
-          }
+      break;
+    }
+    case btnLEFT: {
+      if (isPressedShort) {
+        currentSetting--;
+        if (currentSetting == -1) {
+          currentSetting = numSettings - 1;
         }
-        break;
       }
-    case btnUP:
-      {
-        if (isPressedShort || isPressedLong) {
-          settings[currentSetting]->handlePressUp(isPressedLong);
+      break;
+    }
+    case btnUP: {
+      if (isPressedShort || isPressedLong) {
+        settings[currentSetting]->handlePressUp(isPressedLong);
+      }
+      break;
+    }
+    case btnDOWN: {
+      if (isPressedShort || isPressedLong) {
+        settings[currentSetting]->handlePressDown(isPressedLong);
+      }
+      break;
+    }
+    case btnSELECT: {
+      if (isPressedShort) {
+        running = !running;
+      }
+      break;
+    }
+    case btnNONE: {
+      if (isPressedLong) {
+        // update settings
+        for (int i = 0; i < numSettings; ++i) {
+          settings[i]->handleUpdate();
         }
-        break;
       }
-    case btnDOWN:
-      {
-        if (isPressedShort || isPressedLong) {
-          settings[currentSetting]->handlePressDown(isPressedLong);
-        }
-        break;
-      }
-    case btnSELECT:
-      {
-        if (isPressedShort) {
-          running = !running;
-        }
-        break;
-      }
-    case btnNONE:
-      {
-        if (isPressedLong) {
-          // update settings
-          for (int i = 0; i < numSettings; ++i) {
-            settings[i]->handleUpdate();
-          }
-        }
-        break;
-      }
+      break;
+    }
   }
   Setpoint = currentAtmosPressure - (pressure.value * IN_HG_HPA);
   Input = pressure_event.pressure;

@@ -1,0 +1,6 @@
+BasedOnStyle: LLVM
+AllowShortIfStatementsOnASingleLine: true
+IndentCaseLabels: true
+BinPackArguments: false
+BinPackParameters: false
+AllowAllParametersOfDeclarationOnNextLine: false
