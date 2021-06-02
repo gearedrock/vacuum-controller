@@ -1,8 +1,10 @@
 #include "Setting.h"
+#include "utils.h"
 #include <Arduino.h>
 #include <EEPROM.h>
 
 char buf[17] = "";
+char numBuf[8] = "";
 int startAddress;
 
 Setting::Setting(String name,
@@ -64,15 +66,10 @@ double Setting::handlePressDown(boolean isLongPress) {
 }
 
 String Setting::getDisplayString() {
-  if (displayPrecision == 0) {
-    snprintf(buf, 17, "%s %d           ", name.c_str(), (long)value);
-  } else if (displayPrecision == 1) {
-    int v = (int)(value * 10);
-    snprintf(buf, 17, "%s %d.%d           ", name.c_str(), v / 10, v % 10);
-  } else {
-    int v = (int)(value * 100);
-    snprintf(buf, 17, "%s %d.%02d           ", name.c_str(), v / 100, v % 100);
-  }
+  // format number
+  char *num = toPrecision(numBuf, 8, value, displayPrecision);
+  // display name number with extra spaces to clear the line
+  snprintf(buf, 17, "%s %s           ", name.c_str(), num);
   return String(buf);
 }
 

@@ -1,9 +1,7 @@
-#include <LiquidCrystal.h>
-
 #include <Adafruit_BMP280.h>
+#include <LiquidCrystal.h>
 #include <SPI.h>
 #include <Wire.h>
-
 #include <avr/wdt.h>
 
 Adafruit_BMP280 bmp; // use I2C interface
@@ -40,6 +38,7 @@ boolean readingFault = false;
 #define in3 13
 #define MOTOR_MIN 1
 #include "Setting.h"
+#include "utils.h"
 int lastButton = btnNONE;
 unsigned long pressStart = 0;
 unsigned long currentPressStart = 0;
@@ -86,8 +85,8 @@ int read_LCD_buttons() {
   // my buttons when read are centered at these valies: 0, 144, 329, 504, 741
   // we add approx 50 to those values and check to see if we are close
   if (adc_key_in > 1000)
-    return btnNONE; // We make this the 1st option for pressure reasons since it
-                    // will be the most likely result
+    return btnNONE; // We make this the 1st option for pressure reasons since
+                    // it will be the most likely result
 
   // For V1.0 comment the other threshold and use the one below:
 
@@ -101,7 +100,6 @@ int read_LCD_buttons() {
 }
 
 void setup() {
-
   Serial.begin(9600);
   Serial.println(F("BMP280 Sensor event test"));
   lcd.createChar(1, offChar);
@@ -176,52 +174,45 @@ boolean checkFault(double sensorPressure) {
   if (currReading > MAX_READINGS) {
     currReading = 0;
   }
+  // check for duplicate readings
   for (int i = 1; i < MAX_READINGS; ++i) {
     if (readings[0] != readings[i]) {
       return false;
     }
   }
+  // if all of the readings are the same something is
+  // wrong (there should be some natural variance)
   Serial.println("pressure bad");
   return true;
 }
 
-void loop() {
-  char buf[17] = "";
-  // read sensor
-  sensors_event_t pressure_event;
-  bmp_pressure->getEvent(&pressure_event);
-  lcd.setCursor(0, 0);
-  long sensorPressure = (long)(pressure_event.pressure / IN_HG_HPA * 100);
-  int press1 = (int)(sensorPressure / 100);
-  int press2 = (int)(sensorPressure % 100);
-  long vacPress =
-      (long)((currentAtmosPressure - pressure_event.pressure) / IN_HG_HPA * 10);
-  int vacP1 = (int)(vacPress / 10);
-  int vacP2 = (int)(vacPress % 10);
-  snprintf(buf,
-           17,
-           "Curr:%02d.%02d(%01d.%01d)%c",
-           (press1),
-           (press2),
-           (vacP1),
-           (vacP2),
-           (running ? '\x02' : '\x01'));
-  lcd.print(buf);
+char *formatCurrentPressure(char *buf,
+                            long len,
+                            float eventPressure,
+                            float vacPress,
+                            bool running) {
+  char pres[8] = "";
+  char vac[8] = "";
+  toPrecision(pres, 8, eventPressure, 2);
+  toPrecision(vac, 8, vacPress, 1);
+  snprintf(
+      buf, len, "Curr:%s(%s)%c    ", pres, vac, (running ? '\x02' : '\x01'));
+}
 
+void updateButtonStates(bool *isPressedLong, bool *isPressedShort) {
   // compute button time
-
   unsigned long now = millis();
 
   lcd_key = read_LCD_buttons(); // read the buttons
+  // button changed, reset counter
   if (lcd_key != lastButton) {
     lastButton = lcd_key;
     currentPressStart = pressStart = now;
     wasPressed = false;
   }
-  bool isPressedLong = false;
-  bool isPressedShort = false;
+
   if (now - pressStart > 50 && !wasPressed) {
-    isPressedShort = wasPressed = true;
+    *isPressedShort = wasPressed = true;
   }
   if (now - pressStart > 1500) {
     if (wasPressedLong) {
@@ -231,18 +222,38 @@ void loop() {
       }
     }
     if (!wasPressedLong) {
-      wasPressedLong = isPressedLong = true;
+      wasPressedLong = *isPressedLong = true;
       currentPressStart = now;
     }
   }
-  if (false && (isPressedLong || isPressedShort)) {
+  if (false && (*isPressedLong || *isPressedShort)) {
     Serial.print("key");
     Serial.print(lcd_key);
     Serial.print(" short ");
-    Serial.print(isPressedShort);
+    Serial.print(*isPressedShort);
     Serial.print(" long ");
-    Serial.println(isPressedLong);
+    Serial.println(*isPressedLong);
   }
+}
+
+void loop() {
+  char buf[17] = "";
+  // read sensor
+  sensors_event_t pressure_event;
+  bmp_pressure->getEvent(&pressure_event);
+
+  // print current pressure
+  lcd.setCursor(0, 0);
+  float sensorPressure = (pressure_event.pressure / IN_HG_HPA);
+  float vacPress =
+      ((currentAtmosPressure - pressure_event.pressure) / IN_HG_HPA);
+  formatCurrentPressure(buf, 17, sensorPressure, vacPress, running);
+  lcd.print(buf);
+
+  // get button states
+  bool isPressedLong = false;
+  bool isPressedShort = false;
+  updateButtonStates(&isPressedLong, &isPressedShort);
 
   wdt_reset();
   // every 250ms (button press) check for sane pressures
@@ -263,8 +274,8 @@ void loop() {
   lcd.setCursor(0, 1);
   lcd.print(settings[currentSetting]->getDisplayString());
 
-  switch (lcd_key) // depending on which button was pushed, we perform an action
-  {
+  // depending on which button was pushed, we perform an action
+  switch (lcd_key) {
     case btnRIGHT: {
       if (isPressedShort) {
         currentSetting++;
@@ -315,7 +326,12 @@ void loop() {
   Input = pressure_event.pressure;
   if (false && (isPressedShort || isPressedLong)) {
     Serial.println(buf);
-    Serial.print("set");
+
+    Serial.print(sensorPressure);
+    Serial.print(" ");
+    Serial.println(vacPress);
+
+    Serial.print(" set ");
     Serial.print(Setpoint);
     Serial.print(" in ");
     Serial.print(Input);
