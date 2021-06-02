@@ -1,5 +1,7 @@
 {
     "board": "arduino:avr:uno",
     "programmer": "arduino:avrispmkii",
-    "sketch": "vacuum-controller.ino"
+    "sketch": "vacuum-controller.ino",
+    "output": "../build",
+    "port": "COM4"
 }
