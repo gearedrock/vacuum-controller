@@ -10,10 +10,13 @@ Adafruit_Sensor *bmp_pressure = bmp.getPressureSensor();
 
 // select the pins used on the LCD panel
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
-byte offChar[] =
-    {B00000, B11011, B11011, B11011, B11011, B11011, B11011, B00000};
-byte onChar[] =
-    {B00000, B01000, B01100, B01110, B01110, B01100, B01000, B00000};
+byte customChars[6][8] = {
+    {B00000, B11011, B11011, B11011, B11011, B11011, B11011, B00000},
+    {B00000, B01000, B01100, B01110, B01110, B01100, B01000, B00000},
+    {0b11111, 0b10001, 0b01110, 0b00100, 0b00100, 0b01010, 0b10101, 0b11111},
+    {0b11111, 0b10001, 0b01010, 0b00100, 0b00100, 0b01010, 0b11111, 0b11111},
+    {0b01110, 0b11011, 0b11011, 0b11001, 0b11111, 0b11111, 0b01110, 0b00000},
+    {0b01110, 0b10101, 0b10101, 0b10111, 0b10001, 0b10001, 0b01110, 0b00000}};
 
 // define some values used by the panel and buttons
 int lcd_key = 0;
@@ -28,8 +31,8 @@ int adc_key_in = 0;
 #define IN_HG_HPA 33.8639
 #define MAX_PRESSURE 120
 double currentAtmosPressure = SENSORS_PRESSURE_SEALEVELHPA;
-#define MAX_READINGS 10
-double readings[MAX_READINGS] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+#define MAX_READINGS 5
+double readings[MAX_READINGS] = {0, 0, 0, 0, 0};
 int currReading = 0;
 boolean readingFault = false;
 
@@ -45,6 +48,8 @@ unsigned long currentPressStart = 0;
 bool wasPressed = false;
 bool wasPressedLong = false;
 bool running = false;
+
+#define MS_PER_MIN 60000
 int interval = 0;
 long intervalRemaining = 0;
 long pauseRemaining = 0;
@@ -71,6 +76,15 @@ Setting *settings[] = {&pressure,
 int currentSetting = 0;
 #define numSettings 9
 int eepromStart = 0;
+
+enum IntervalState {
+  INTERVAL_START,
+  IN_INTERVAL,
+  PAUSE_START,
+  IN_PAUSE,
+};
+unsigned long intervalStart = 0;
+IntervalState intervalState = INTERVAL_START;
 
 #include <PID_v1.h>
 
@@ -103,8 +117,9 @@ int read_LCD_buttons() {
 void setup() {
   Serial.begin(9600);
   Serial.println(F("BMP280 Sensor event test"));
-  lcd.createChar(1, offChar);
-  lcd.createChar(2, onChar);
+  for (byte i = 0; i < 6; i++) {
+    lcd.createChar(i + 1, customChars[i]);
+  }
   lcd.begin(16, 2); // start the library
   lcd.setCursor(0, 0);
   lcd.print("Reading pressure");
@@ -192,12 +207,39 @@ char *formatCurrentPressure(char *buf,
                             float eventPressure,
                             float vacPress,
                             bool running) {
-  char pres[8] = "";
+  char set[8] = "";
   char vac[8] = "";
-  toPrecision(pres, 8, eventPressure, 2);
+  char time[6] = "";
   toPrecision(vac, 8, vacPress, 1);
-  snprintf(
-      buf, len, "Curr:%s(%s)%c    ", pres, vac, (running ? '\x02' : '\x01'));
+  toPrecision(set, 8, (currentAtmosPressure - Setpoint) / IN_HG_HPA, 1);
+  char state[4] = "   ";
+  if (intervalStart != 0) {
+    double curr = (millis() - intervalStart) / ((double)MS_PER_MIN);
+    char x = ' ';
+    switch (intervalState) {
+      case PAUSE_START:
+        x = millis() % 1000 < 500 ? '\x03' : '\x04';
+        snprintf(state, 4, "%c   ", x);
+        break;
+      case IN_PAUSE:
+        snprintf(state, 4, "\x03%s   ", toPrecision(time, 6, curr, 1));
+        break;
+      case INTERVAL_START:
+        x = millis() % 1000 < 500 ? '\x05' : '\x06';
+        snprintf(state, 4, "%c   ", x);
+        break;
+      case IN_INTERVAL:
+        snprintf(state, 4, "\x06%s   ", toPrecision(time, 6, curr, 1));
+        break;
+    }
+  }
+  snprintf(buf,
+           len,
+           "%cPr%s St%s%s       ",
+           (running ? '\x02' : '\x01'),
+           vac,
+           set,
+           state);
 }
 
 void updateButtonStates(bool *isPressedLong, bool *isPressedShort) {
@@ -310,6 +352,12 @@ void loop() {
     case btnSELECT: {
       if (isPressedShort) {
         running = !running;
+        if (running) {
+          intervalStart = millis();
+          intervalState = INTERVAL_START;
+        } else {
+          intervalStart = 0;
+        }
       }
       break;
     }
@@ -325,29 +373,69 @@ void loop() {
   }
   Setpoint = currentAtmosPressure - (pressure.value * IN_HG_HPA);
   Input = pressure_event.pressure;
-  if (false && (isPressedShort || isPressedLong)) {
-    Serial.println(buf);
 
+  // determine if we're in an interval
+  if (intervalStart != 0 && rampType.value == 1.0) {
+    unsigned long curr = millis() - intervalStart;
+    if (intervalState == IN_PAUSE || intervalState == PAUSE_START) {
+      // use the pause pressure
+      Setpoint = currentAtmosPressure - (pausePressure.value * IN_HG_HPA);
+    }
+    if (intervalState == INTERVAL_START || intervalState == PAUSE_START) {
+      // check if we've hit target presssure yet (or very close to)
+      if (abs(Input - Setpoint) < 0.2) {
+        // go to next state
+        if (intervalState == INTERVAL_START) {
+          intervalState = IN_INTERVAL;
+        } else {
+          intervalState = IN_PAUSE;
+        }
+      } else {
+        // we're not there yet, advance start time
+        intervalStart = millis();
+      }
+    }
+    if ((intervalState == IN_PAUSE && curr > pauseTime.value * MS_PER_MIN) ||
+        (intervalState == IN_INTERVAL &&
+         curr > intervalTime.value * MS_PER_MIN)) {
+      // flip state and reset timer
+      if (intervalState == IN_PAUSE) {
+        intervalState = INTERVAL_START;
+      } else {
+        intervalState = PAUSE_START;
+      }
+      intervalStart = millis();
+    }
+  }
+
+  if (true && (isPressedShort || isPressedLong)) {
+    // Serial.print(buf);
+    Serial.print(" | sensor: ");
     Serial.print(sensorPressure);
-    Serial.print(" ");
-    Serial.println(vacPress);
+    Serial.print(" vacuum: ");
+    Serial.print(vacPress);
 
-    Serial.print(" set ");
-    Serial.print(Setpoint);
-    Serial.print(" in ");
-    Serial.print(Input);
-    Serial.print(" out ");
-    Serial.print(Output);
-    Serial.print(" run ");
-    Serial.print(running);
-    Serial.print(" P ");
-    Serial.print(pressure.value);
-    Serial.print(" Kp ");
-    Serial.print(Kp.value);
-    Serial.print(" Ki ");
-    Serial.print(Ki.value);
-    Serial.print(" Kd ");
-    Serial.print(Kd.value);
+    Serial.print(" | interval state ");
+    Serial.print(intervalState);
+    Serial.print(" start ");
+    Serial.print(intervalStart);
+
+    // Serial.print(" | set ");
+    // Serial.print(Setpoint);
+    // Serial.print(" in ");
+    // Serial.print(Input);
+    // Serial.print(" out ");
+    // Serial.print(Output);
+    // Serial.print(" run ");
+    // Serial.print(running);
+    // Serial.print(" P ");
+    // Serial.print(pressure.value);
+    // Serial.print(" Kp ");
+    // Serial.print(Kp.value);
+    // Serial.print(" Ki ");
+    // Serial.print(Ki.value);
+    // Serial.print(" Kd ");
+    // Serial.print(Kd.value);
     Serial.println();
   }
   if (running) {
