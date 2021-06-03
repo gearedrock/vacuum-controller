@@ -5,7 +5,7 @@
 
 char buf[17] = "";
 char numBuf[8] = "";
-int startAddress;
+int startAddress = 0;
 
 Setting::Setting(String name,
                  double value,
@@ -19,7 +19,7 @@ Setting::Setting(String name,
       fastStep(fastStep), displayPrecision(displayPrecision), previous(value),
       persist(persist) {
   values = NULL;
-  address = startAddress++;
+  address = (startAddress++) * sizeof(double);
 }
 
 Setting::Setting(String name,
@@ -30,7 +30,9 @@ Setting::Setting(String name,
                  bool persist)
     : name(name), value(value), minn(min), maxx(max), values(values),
       slowStep(1), fastStep(1), displayPrecision(0), previous(value),
-      persist(persist) {}
+      persist(persist) {
+  address = (startAddress++) * sizeof(double);
+}
 
 void Setting::init() {
   if (persist) {
@@ -41,13 +43,15 @@ void Setting::init() {
     Serial.print(address);
     Serial.print(" setv ");
     Serial.print(setValue);
-    Serial.println();
     if (setValue <= maxx && setValue >= minn) {
       value = setValue;
       previous = setValue;
     } else {
+      Serial.print(" resetting bad value!");
       EEPROM.put(address, value);
     }
+
+    Serial.println();
   }
 }
 
@@ -91,7 +95,9 @@ String Setting::getDisplayString() {
 
 void Setting::handleUpdate() {
   if (persist && previous != value) {
-    Serial.print("address");
+    Serial.print("Updating ");
+    Serial.print(name);
+    Serial.print(" address ");
     Serial.print(address);
     Serial.print(" val ");
     Serial.print(value);
