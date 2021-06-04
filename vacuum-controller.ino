@@ -19,7 +19,7 @@ byte customChars[6][8] = {
     {0b01110, 0b10101, 0b10101, 0b10111, 0b10001, 0b10001, 0b01110, 0b00000}};
 
 // define some values used by the panel and buttons
-int lcd_key = 0;
+byte lcd_key = 0;
 int adc_key_in = 0;
 #define btnRIGHT 0
 #define btnUP 1
@@ -42,7 +42,7 @@ boolean readingFault = false;
 #define MOTOR_MIN 1
 #include "Setting.h"
 #include "utils.h"
-int lastButton = btnNONE;
+byte lastButton = btnNONE;
 unsigned long pressStart = 0;
 unsigned long currentPressStart = 0;
 bool wasPressed = false;
@@ -50,9 +50,6 @@ bool wasPressedLong = false;
 bool running = false;
 
 #define MS_PER_MIN 60000
-int interval = 0;
-long intervalRemaining = 0;
-long pauseRemaining = 0;
 
 String modes[] = {"Constant", "Interval", "Ramp"};
 Setting pressure = Setting("Pressure", 0, 0, 12, true);
@@ -73,9 +70,8 @@ Setting *settings[] = {&pressure,
                        &Kp,
                        &Ki,
                        &Kd};
-int currentSetting = 0;
+byte currentSetting = 0;
 #define numSettings 9
-int eepromStart = 0;
 
 enum IntervalState {
   INTERVAL_START,
@@ -95,7 +91,7 @@ double Setpoint, Input, Output;
 PID myPID(&Input, &Output, &Setpoint, Kp.value, Ki.value, Kd.value, REVERSE);
 
 // read the buttonss
-int read_LCD_buttons() {
+byte read_LCD_buttons() {
   adc_key_in = analogRead(0); // read the value from the sensor
   // my buttons when read are centered at these valies: 0, 144, 329, 504, 741
   // we add approx 50 to those values and check to see if we are close
@@ -176,7 +172,7 @@ void setup() {
   }
   Serial.println(currentAtmosPressure);
   Serial.println("Settings");
-  for (int i = 0; i < numSettings; ++i) {
+  for (byte i = 0; i < numSettings; ++i) {
     settings[i]->init();
   }
 
@@ -191,7 +187,7 @@ boolean checkFault(double sensorPressure) {
     currReading = 0;
   }
   // check for duplicate readings
-  for (int i = 1; i < MAX_READINGS; ++i) {
+  for (byte i = 1; i < MAX_READINGS; ++i) {
     if (readings[0] != readings[i]) {
       return false;
     }
@@ -207,35 +203,41 @@ char *formatCurrentPressure(char *buf,
                             float eventPressure,
                             float vacPress,
                             bool running) {
-  char set[8] = "";
-  char vac[8] = "";
-  char time[6] = "";
-  toPrecision(vac, 8, vacPress, 1);
+  char set[6] = "";
+  char vac[5] = "";
+  char time[5] = "";
+  toPrecision(vac, 8, vacPress, 2);
   toPrecision(set, 8, (currentAtmosPressure - Setpoint) / IN_HG_HPA, 1);
-  char state[4] = "   ";
+  char state[5] = "   ";
   if (intervalStart != 0) {
     double curr = (millis() - intervalStart) / ((double)MS_PER_MIN);
     char x = ' ';
     switch (intervalState) {
       case PAUSE_START:
         x = millis() % 1000 < 500 ? '\x03' : '\x04';
-        snprintf(state, 4, "%c   ", x);
+        snprintf(state, 5, "%c   ", x);
         break;
       case IN_PAUSE:
-        snprintf(state, 4, "\x03%s   ", toPrecision(time, 6, curr, 1));
+        snprintf(state,
+                 5,
+                 "\x03%s   ",
+                 toPrecision(time, 6, pauseTime.value - curr, 1));
         break;
       case INTERVAL_START:
         x = millis() % 1000 < 500 ? '\x05' : '\x06';
-        snprintf(state, 4, "%c   ", x);
+        snprintf(state, 5, "%c   ", x);
         break;
       case IN_INTERVAL:
-        snprintf(state, 4, "\x06%s   ", toPrecision(time, 6, curr, 1));
+        snprintf(state,
+                 5,
+                 "\x06%s   ",
+                 toPrecision(time, 6, intervalTime.value - curr, 1));
         break;
     }
   }
   snprintf(buf,
            len,
-           "%cPr%s St%s%s       ",
+           "%cPr%sSp%s%s       ",
            (running ? '\x02' : '\x01'),
            vac,
            set,
@@ -364,7 +366,7 @@ void loop() {
     case btnNONE: {
       if (isPressedLong) {
         // update settings
-        for (int i = 0; i < numSettings; ++i) {
+        for (byte i = 0; i < numSettings; ++i) {
           settings[i]->handleUpdate();
         }
       }
@@ -383,7 +385,13 @@ void loop() {
     }
     if (intervalState == INTERVAL_START || intervalState == PAUSE_START) {
       // check if we've hit target presssure yet (or very close to)
-      if (abs(Input - Setpoint) < 0.2) {
+      double offset = Input - Setpoint;
+      // Serial.print(Input);
+      // Serial.print(" ");
+      // Serial.print(Setpoint);
+      // Serial.print(" ");
+      // Serial.println(offset);
+      if (offset < 2) {
         // go to next state
         if (intervalState == INTERVAL_START) {
           intervalState = IN_INTERVAL;
@@ -408,7 +416,7 @@ void loop() {
     }
   }
 
-  if (true && (isPressedShort || isPressedLong)) {
+  if (false && (isPressedShort || isPressedLong)) {
     // Serial.print(buf);
     Serial.print(" | sensor: ");
     Serial.print(sensorPressure);
@@ -419,6 +427,8 @@ void loop() {
     Serial.print(intervalState);
     Serial.print(" start ");
     Serial.print(intervalStart);
+    Serial.print(" ");
+    Serial.print((millis() - intervalStart) / ((double)MS_PER_MIN));
 
     // Serial.print(" | set ");
     // Serial.print(Setpoint);
