@@ -81,11 +81,15 @@ enum IntervalState {
 };
 unsigned long intervalStart = 0;
 IntervalState intervalState = INTERVAL_START;
+byte intervalCount = 0;
 
 #include <PID_v1.h>
 
 // Define Variables we'll be connecting to
 double Setpoint, Input, Output;
+float motorAvg = 255;
+#define NUM_AVG 10
+#define MOTOR_STABLE_AMOUNT 60
 
 // Specify the links and initial tuning parameters
 PID myPID(&Input, &Output, &Setpoint, Kp.value, Ki.value, Kd.value, REVERSE);
@@ -113,10 +117,12 @@ byte read_LCD_buttons() {
 void setup() {
   Serial.begin(9600);
   Serial.println(F("BMP280 Sensor event test"));
+  lcd.begin(16, 2); // start the library
+  // upload custom chars
   for (byte i = 0; i < 6; i++) {
     lcd.createChar(i + 1, customChars[i]);
   }
-  lcd.begin(16, 2); // start the library
+  // set cursor to move out of programming mode
   lcd.setCursor(0, 0);
   lcd.print("Reading pressure");
   while (!bmp.begin(BMP280_ADDRESS_ALT)) {
@@ -203,45 +209,41 @@ char *formatCurrentPressure(char *buf,
                             float eventPressure,
                             float vacPress,
                             bool running) {
-  char set[6] = "";
   char vac[5] = "";
   char time[5] = "";
   toPrecision(vac, 8, vacPress, 2);
-  toPrecision(set, 8, (currentAtmosPressure - Setpoint) / IN_HG_HPA, 1);
-  char state[5] = "   ";
+#define STATE_CHARS 7
+  char state[STATE_CHARS] = "     ";
   if (intervalStart != 0) {
     double curr = (millis() - intervalStart) / ((double)MS_PER_MIN);
     char x = ' ';
     switch (intervalState) {
       case PAUSE_START:
         x = millis() % 1000 < 500 ? '\x03' : '\x04';
-        snprintf(state, 5, "%c   ", x);
+        snprintf(state, STATE_CHARS, "%c %d  ", x, intervalCount);
         break;
       case IN_PAUSE:
         snprintf(state,
-                 5,
-                 "\x03%s   ",
-                 toPrecision(time, 6, pauseTime.value - curr, 1));
+                 STATE_CHARS,
+                 "\x03%s %d  ",
+                 toPrecision(time, 6, pauseTime.value - curr, 1),
+                 intervalCount);
         break;
       case INTERVAL_START:
         x = millis() % 1000 < 500 ? '\x05' : '\x06';
-        snprintf(state, 5, "%c   ", x);
+        snprintf(state, STATE_CHARS, "%c %d  ", x, intervalCount);
         break;
       case IN_INTERVAL:
         snprintf(state,
-                 5,
-                 "\x06%s   ",
-                 toPrecision(time, 6, intervalTime.value - curr, 1));
+                 STATE_CHARS,
+                 "\x06%s %d  ",
+                 toPrecision(time, 6, intervalTime.value - curr, 1),
+                 intervalCount);
         break;
     }
   }
-  snprintf(buf,
-           len,
-           "%cPr%sSp%s%s       ",
-           (running ? '\x02' : '\x01'),
-           vac,
-           set,
-           state);
+  snprintf(
+      buf, len, "%cCur:%s %s       ", (running ? '\x02' : '\x01'), vac, state);
 }
 
 void updateButtonStates(bool *isPressedLong, bool *isPressedShort) {
@@ -384,17 +386,17 @@ void loop() {
       Setpoint = currentAtmosPressure - (pausePressure.value * IN_HG_HPA);
     }
     if (intervalState == INTERVAL_START || intervalState == PAUSE_START) {
-      // check if we've hit target presssure yet (or very close to)
-      double offset = Input - Setpoint;
+      // check if the motor has stabilized yet (or very close to)
       // Serial.print(Input);
       // Serial.print(" ");
       // Serial.print(Setpoint);
       // Serial.print(" ");
       // Serial.println(offset);
-      if (offset < 2) {
+      if (motorAvg < MOTOR_STABLE_AMOUNT) {
         // go to next state
         if (intervalState == INTERVAL_START) {
           intervalState = IN_INTERVAL;
+          intervalCount++;
         } else {
           intervalState = IN_PAUSE;
         }
@@ -416,7 +418,7 @@ void loop() {
     }
   }
 
-  if (false && (isPressedShort || isPressedLong)) {
+  if (true && (isPressedShort || isPressedLong)) {
     // Serial.print(buf);
     Serial.print(" | sensor: ");
     Serial.print(sensorPressure);
@@ -430,14 +432,16 @@ void loop() {
     Serial.print(" ");
     Serial.print((millis() - intervalStart) / ((double)MS_PER_MIN));
 
-    // Serial.print(" | set ");
-    // Serial.print(Setpoint);
-    // Serial.print(" in ");
-    // Serial.print(Input);
-    // Serial.print(" out ");
-    // Serial.print(Output);
-    // Serial.print(" run ");
-    // Serial.print(running);
+    Serial.print(" | set ");
+    Serial.print(Setpoint);
+    Serial.print(" in ");
+    Serial.print(Input);
+    Serial.print(" out ");
+    Serial.print(Output);
+    Serial.print(" run ");
+    Serial.print(running);
+    Serial.print(" motor avg ");
+    Serial.print(motorAvg);
     // Serial.print(" P ");
     // Serial.print(pressure.value);
     // Serial.print(" Kp ");
@@ -454,6 +458,7 @@ void loop() {
     if (Output <= MOTOR_MIN) {
       Output = 0;
     }
+    motorAvg = (motorAvg * (NUM_AVG - 1) + Output) / NUM_AVG;
     analogWrite(enB, Output);
   } else {
     analogWrite(enB, 0);

@@ -14,7 +14,7 @@ Setting::Setting(String name,
                  bool persist,
                  double slowStep,
                  double fastStep,
-                 int displayPrecision)
+                 byte displayPrecision)
     : name(name), value(value), minn(min), maxx(max), slowStep(slowStep),
       fastStep(fastStep), displayPrecision(displayPrecision), previous(value),
       persist(persist) {

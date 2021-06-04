@@ -4,7 +4,7 @@ class Setting {
 public:
   String name;
   double value, minn, maxx, slowStep, fastStep, previous;
-  int displayPrecision;
+  byte displayPrecision;
   int address;
   bool persist;
   String *values;
@@ -15,7 +15,7 @@ public:
           bool persist = false,
           double slowStep = 0.1,
           double fastStep = 1,
-          int displayPrecision = 1);
+          byte displayPrecision = 1);
 
   Setting(String name,
           // display values

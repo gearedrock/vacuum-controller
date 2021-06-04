@@ -1,7 +1,7 @@
 #include "utils.h"
 #include <Arduino.h>
 
-char *toPrecision(char *buffer, long len, float value, int precision) {
+char *toPrecision(char *buffer, long len, float value, byte precision) {
   if (precision == 0) {
     snprintf(buffer, len, "%d", (long)value);
   } else if (precision == 1) {
