@@ -51,22 +51,24 @@ bool running = false;
 
 #define MS_PER_MIN 60000
 
-String modes[] = {"Constant", "Interval", "Ramp"};
+String modes[] = {"Constant", "Interval", "Interval Ramp"};
+// set pressure
 Setting pressure = Setting("Pressure", 0, 0, 12, true);
+
 Setting rampType = Setting("Mode", modes, 0, 0, 2, true);
-Setting rampPres = Setting("Ramp Pr", 2, 0, 5, true);
+Setting rampPres = Setting("Ramp Pres", 2, 0, 5, true);
+Setting rampTime = Setting("Ramp Time", 2, 0, 10, true, 1);
 Setting intervalTime = Setting("Interval Tm", 10, 0, 100, true, 0.5, 5);
-Setting pauseTime = Setting("Pause Tm", 2, 0, 100, true, 0.5, 5);
-Setting pausePressure = Setting("Pause Pr", 0, 0, 5, true);
+Setting pauseTime = Setting("Pause Time", 2, 0, 100, true, 0.5, 5);
 Setting Kp = Setting(String("Kp"), 2);
 Setting Ki = Setting(String("Ki"), 5);
 Setting Kd = Setting(String("Kd"), 1);
 Setting *settings[] = {&pressure,
                        &rampType,
                        &rampPres,
+                       &rampTime,
                        &intervalTime,
                        &pauseTime,
-                       &pausePressure,
                        &Kp,
                        &Ki,
                        &Kd};
@@ -76,8 +78,7 @@ byte currentSetting = 0;
 enum IntervalState {
   INTERVAL_START,
   IN_INTERVAL,
-  PAUSE_START,
-  IN_PAUSE,
+  PAUSED,
 };
 unsigned long intervalStart = 0;
 IntervalState intervalState = INTERVAL_START;
@@ -218,11 +219,7 @@ char *formatCurrentPressure(char *buf,
     double curr = (millis() - intervalStart) / ((double)MS_PER_MIN);
     char x = ' ';
     switch (intervalState) {
-      case PAUSE_START:
-        x = millis() % 1000 < 500 ? '\x03' : '\x04';
-        snprintf(state, STATE_CHARS, "%c %d  ", x, intervalCount);
-        break;
-      case IN_PAUSE:
+      case PAUSED:
         snprintf(state,
                  STATE_CHARS,
                  "\x03%s %d  ",
@@ -381,11 +378,8 @@ void loop() {
   // determine if we're in an interval
   if (intervalStart != 0 && rampType.value == 1.0) {
     unsigned long curr = millis() - intervalStart;
-    if (intervalState == IN_PAUSE || intervalState == PAUSE_START) {
-      // use the pause pressure
-      Setpoint = currentAtmosPressure - (pausePressure.value * IN_HG_HPA);
-    }
-    if (intervalState == INTERVAL_START || intervalState == PAUSE_START) {
+    // check if waiting for interval to start
+    if (intervalState == INTERVAL_START) {
       // check if the motor has stabilized yet (or very close to)
       // Serial.print(Input);
       // Serial.print(" ");
@@ -393,32 +387,30 @@ void loop() {
       // Serial.print(" ");
       // Serial.println(offset);
       if (motorAvg < MOTOR_STABLE_AMOUNT) {
-        // go to next state
-        if (intervalState == INTERVAL_START) {
-          intervalState = IN_INTERVAL;
-          intervalCount++;
-        } else {
-          intervalState = IN_PAUSE;
-        }
+        // start interval
+        intervalState = IN_INTERVAL;
+        intervalCount++;
       } else {
         // we're not there yet, advance start time
         intervalStart = millis();
       }
     }
-    if ((intervalState == IN_PAUSE && curr > pauseTime.value * MS_PER_MIN) ||
+    // check if time has advanced to next start
+    if ((intervalState == PAUSED && curr > pauseTime.value * MS_PER_MIN) ||
         (intervalState == IN_INTERVAL &&
          curr > intervalTime.value * MS_PER_MIN)) {
       // flip state and reset timer
-      if (intervalState == IN_PAUSE) {
+      if (intervalState == PAUSED) {
         intervalState = INTERVAL_START;
       } else {
-        intervalState = PAUSE_START;
+        intervalState = PAUSED;
       }
       intervalStart = millis();
     }
   }
+  boolean isIntervalPaused = intervalStart != 0 && intervalState == PAUSED;
 
-  if (true && (isPressedShort || isPressedLong)) {
+  if (false && (isPressedShort || isPressedLong)) {
     // Serial.print(buf);
     Serial.print(" | sensor: ");
     Serial.print(sensorPressure);
@@ -427,21 +419,23 @@ void loop() {
 
     Serial.print(" | interval state ");
     Serial.print(intervalState);
+    Serial.print(" paused? ");
+    Serial.print(isIntervalPaused);
     Serial.print(" start ");
     Serial.print(intervalStart);
     Serial.print(" ");
     Serial.print((millis() - intervalStart) / ((double)MS_PER_MIN));
 
-    Serial.print(" | set ");
-    Serial.print(Setpoint);
-    Serial.print(" in ");
-    Serial.print(Input);
-    Serial.print(" out ");
-    Serial.print(Output);
-    Serial.print(" run ");
-    Serial.print(running);
-    Serial.print(" motor avg ");
-    Serial.print(motorAvg);
+    // Serial.print(" | set ");
+    // Serial.print(Setpoint);
+    // Serial.print(" in ");
+    // Serial.print(Input);
+    // Serial.print(" out ");
+    // Serial.print(Output);
+    // Serial.print(" run ");
+    // Serial.print(running);
+    // Serial.print(" motor avg ");
+    // Serial.print(motorAvg);
     // Serial.print(" P ");
     // Serial.print(pressure.value);
     // Serial.print(" Kp ");
@@ -452,7 +446,7 @@ void loop() {
     // Serial.print(Kd.value);
     Serial.println();
   }
-  if (running) {
+  if (running && !isIntervalPaused) {
     myPID.SetTunings(Kp.value, Ki.value, Kd.value);
     myPID.Compute();
     if (Output <= MOTOR_MIN) {
