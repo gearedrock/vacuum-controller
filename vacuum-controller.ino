@@ -42,11 +42,16 @@ boolean readingFault = false;
 #define MOTOR_MIN 1
 #include "Setting.h"
 #include "utils.h"
+#define SHORT_PRESS_TIME 50
+#define LONG_PRESS_TIME 1500
+#define VERY_LONG_PRESS_TIME 15000
+#define LONG_PRESS_TIMEOUT 250
 byte lastButton = btnNONE;
 unsigned long pressStart = 0;
 unsigned long currentPressStart = 0;
 bool wasPressed = false;
 bool wasPressedLong = false;
+bool isPressedVeryLong = false;
 bool running = false;
 
 #define MS_PER_MIN 60000
@@ -252,23 +257,34 @@ void updateButtonStates(bool *isPressedLong, bool *isPressedShort) {
   if (lcd_key != lastButton) {
     lastButton = lcd_key;
     currentPressStart = pressStart = now;
+    isPressedVeryLong = false;
     wasPressed = false;
   }
-
-  if (now - pressStart > 50 && !wasPressed) {
+  // we start with the buttons not pressed.  This is to avoid triggering the
+  // handler code multiple times per loop
+  // so only set pressed short once - ignore if we were already pressed
+  if (now - pressStart > SHORT_PRESS_TIME && !wasPressed) {
     *isPressedShort = wasPressed = true;
   }
-  if (now - pressStart > 1500) {
+  if (now - pressStart > LONG_PRESS_TIME) {
+    // we were pressed, only "press" again after 250ms
     if (wasPressedLong) {
       unsigned long currentPressLength = now - currentPressStart;
-      if (currentPressLength > 250) {
+      if (currentPressLength > LONG_PRESS_TIMEOUT) {
         wasPressedLong = false;
       }
     }
     if (!wasPressedLong) {
+      // we weren't pressed before, mark as pressed
       wasPressedLong = *isPressedLong = true;
       currentPressStart = now;
     }
+  }
+  if (now - pressStart > VERY_LONG_PRESS_TIME) {
+    // unlike the other states this just lets us know that we've been in whateve
+    // "press" state for a long time. this could indicate a button stuck, but
+    // more likely we'll just use it for timeouts
+    isPressedVeryLong = true;
   }
   if (false && (*isPressedLong || *isPressedShort)) {
     Serial.print("key");
@@ -368,6 +384,10 @@ void loop() {
         for (byte i = 0; i < numSettings; ++i) {
           settings[i]->handleUpdate();
         }
+      }
+      if (isPressedVeryLong) {
+        // go back to initial setting
+        currentSetting = 0;
       }
       break;
     }
