@@ -56,24 +56,23 @@ bool running = false;
 
 #define MS_PER_MIN 60000
 
-String modes[] = {"Constant", "Interval", "Int + Ramp"};
+String modes[] = {"Constant", "Interval", "Int + Ramp", "Waves"};
 // set pressure
 Setting pressure = Setting("Pressure", 0, 0, 12, true);
-
-Setting rampType = Setting("Mode", modes, 0, 0, 2, true);
-Setting rampPres = Setting("Ramp Pres", 2, 0, 5, true);
-Setting rampTime = Setting("Ramp Time", 2, 0, 10, true, 1);
+Setting rampType = Setting("Mode", modes, 0, 0, 3, true);
 Setting intervalTime = Setting("Interval Tm", 10, 0, 100, true, 0.5, 5);
 Setting pauseTime = Setting("Pause Time", 2, 0, 100, true, 0.5, 5);
+Setting rampPres = Setting("Ramp Pres", 2, 0, 5, true);
+Setting rampTime = Setting("Ramp Time", 2, 0, 10, true, 1);
 Setting Kp = Setting(String("Kp"), 2);
 Setting Ki = Setting(String("Ki"), 5);
 Setting Kd = Setting(String("Kd"), 1);
 Setting *settings[] = {&pressure,
                        &rampType,
-                       &rampPres,
-                       &rampTime,
                        &intervalTime,
                        &pauseTime,
+                       &rampPres,
+                       &rampTime,
                        &Kp,
                        &Ki,
                        &Kd};
@@ -91,6 +90,7 @@ byte intervalCount = 0;
 double currentRampPressure = 0;
 #define INTERVAL_MODE 1.0
 #define INTERVAL_RAMP_MODE 2.0
+#define WAVES_MODE 3.0
 
 #include <PID_v1.h>
 
@@ -222,7 +222,8 @@ void printCurrentPressure(float eventPressure, float vacPress, bool running) {
   toPrecision(vac, numLen, vacPress, 2);
 #define STATE_CHARS 7
   char state[STATE_CHARS] = "     ";
-  if (intervalStart != 0) {
+  if (running && (rampType.value == INTERVAL_MODE ||
+                  rampType.value == INTERVAL_RAMP_MODE)) {
     double curr = (millis() - intervalStart) / ((double)MS_PER_MIN);
     char x = ' ';
     switch (intervalState) {
@@ -261,12 +262,10 @@ void printCurrentSetting() {
   lcd.setCursor(0, 1);
   String state = settings[currentSetting]->getDisplayString();
 
-  if (intervalStart != 0 && currentSetting == 0 &&
-      intervalState == IN_INTERVAL) {
+  if (rampType.value != 0 && currentSetting == 0 && running) {
     state.trim();
     // add the ramp pressure
-    toPrecision(vac, numLen, currentRampPressure, 1);
-    state += "+";
+    toPrecision(vac, numLen, currentRampPressure, 1, true);
     state += vac;
   }
   lcd.print(state);
@@ -464,6 +463,12 @@ void loop() {
       pressureDesired += currentRampPressure;
     }
   }
+
+  if (running && rampType.value == WAVES_MODE) {
+    currentRampPressure = sin(millis() / 1000) * 1.5;
+    pressureDesired += currentRampPressure;
+  }
+
   // update setpoint with desired pressure
   Setpoint = currentAtmosPressure - ((pressureDesired)*IN_HG_HPA);
   Input = pressure_event.pressure;

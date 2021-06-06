@@ -1,15 +1,31 @@
 #include "utils.h"
 #include <Arduino.h>
 
-char *toPrecision(char *buffer, size_t len, float value, byte precision) {
+char *toPrecision(char *buffer,
+                  size_t len,
+                  float value,
+                  byte precision,
+                  boolean leadingPlus) {
   if (precision == 0) {
-    snprintf(buffer, len, "%d", (int)value);
+    snprintf(buffer, len, leadingPlus ? "+%d" : "%d", (int)value);
   } else if (precision == 1) {
     int v = (int)abs(value * 10);
-    snprintf(buffer, len, value < 0 ? "-%d.%d" : "%d.%d", v / 10, v % 10);
+    String formatString = "%d.%d";
+    if (value < 0) {
+      formatString = "-" + formatString;
+    } else if (leadingPlus) {
+      formatString = "+" + formatString;
+    }
+    snprintf(buffer, len, formatString.c_str(), v / 10, v % 10);
   } else {
     int v = (int)abs(value * 100);
-    snprintf(buffer, len, value < 0 ? "-%d.%02d" : "%d.%02d", v / 100, v % 100);
+    String formatString = "%d.%02d";
+    if (value < 0) {
+      formatString = "-" + formatString;
+    } else if (leadingPlus) {
+      formatString = "+" + formatString;
+    }
+    snprintf(buffer, len, formatString.c_str(), v / 100, v % 100);
   }
   return buffer;
 }
