@@ -56,7 +56,7 @@ bool running = false;
 
 #define MS_PER_MIN 60000
 
-String modes[] = {"Constant", "Interval", "Interval Ramp"};
+String modes[] = {"Constant", "Interval", "Int + Ramp"};
 // set pressure
 Setting pressure = Setting("Pressure", 0, 0, 12, true);
 
@@ -88,6 +88,9 @@ enum IntervalState {
 unsigned long intervalStart = 0;
 IntervalState intervalState = INTERVAL_START;
 byte intervalCount = 0;
+double currentRampPressure = 0;
+#define INTERVAL_MODE 1.0
+#define INTERVAL_RAMP_MODE 2.0
 
 #include <PID_v1.h>
 
@@ -210,14 +213,13 @@ boolean checkFault(double sensorPressure) {
   return true;
 }
 
-char *formatCurrentPressure(char *buf,
-                            long len,
-                            float eventPressure,
-                            float vacPress,
-                            bool running) {
-  char vac[5] = "";
-  char time[5] = "";
-  toPrecision(vac, 8, vacPress, 2);
+void printCurrentPressure(float eventPressure, float vacPress, bool running) {
+#define bufLen 17
+#define numLen 5
+  char buf[bufLen] = "";
+  char vac[numLen] = "";
+  char time[numLen] = "";
+  toPrecision(vac, numLen, vacPress, 2);
 #define STATE_CHARS 7
   char state[STATE_CHARS] = "     ";
   if (intervalStart != 0) {
@@ -239,13 +241,35 @@ char *formatCurrentPressure(char *buf,
         snprintf(state,
                  STATE_CHARS,
                  "\x06%s %d  ",
-                 toPrecision(time, 6, intervalTime.value - curr, 1),
+                 toPrecision(time, numLen, intervalTime.value - curr, 1),
                  intervalCount);
         break;
     }
   }
-  snprintf(
-      buf, len, "%cCur:%s %s       ", (running ? '\x02' : '\x01'), vac, state);
+  snprintf(buf,
+           bufLen,
+           "%cCur:%s %s       ",
+           (running ? '\x02' : '\x01'),
+           vac,
+           state);
+  lcd.setCursor(0, 0);
+  lcd.print(buf);
+}
+
+void printCurrentSetting() {
+  char vac[numLen] = "";
+  lcd.setCursor(0, 1);
+  String state = settings[currentSetting]->getDisplayString();
+
+  if (intervalStart != 0 && currentSetting == 0 &&
+      intervalState == IN_INTERVAL) {
+    state.trim();
+    // add the ramp pressure
+    toPrecision(vac, numLen, currentRampPressure, 1);
+    state += "+";
+    state += vac;
+  }
+  lcd.print(state);
 }
 
 void updateButtonStates(bool *isPressedLong, bool *isPressedShort) {
@@ -297,18 +321,17 @@ void updateButtonStates(bool *isPressedLong, bool *isPressedShort) {
 }
 
 void loop() {
-  char buf[17] = "";
   // read sensor
   sensors_event_t pressure_event;
   bmp_pressure->getEvent(&pressure_event);
 
   // print current pressure
-  lcd.setCursor(0, 0);
   float sensorPressure = (pressure_event.pressure / IN_HG_HPA);
   float vacPress =
       ((currentAtmosPressure - pressure_event.pressure) / IN_HG_HPA);
-  formatCurrentPressure(buf, 17, sensorPressure, vacPress, running);
-  lcd.print(buf);
+  printCurrentPressure(sensorPressure, vacPress, running);
+
+  printCurrentSetting();
 
   // get button states
   bool isPressedLong = false;
@@ -331,9 +354,6 @@ void loop() {
     return;
   }
 
-  lcd.setCursor(0, 1);
-  lcd.print(settings[currentSetting]->getDisplayString());
-
   // depending on which button was pushed, we perform an action
   switch (lcd_key) {
     case btnRIGHT: {
@@ -347,9 +367,10 @@ void loop() {
     }
     case btnLEFT: {
       if (isPressedShort) {
-        currentSetting--;
-        if (currentSetting == -1) {
+        if (currentSetting == 0) {
           currentSetting = numSettings - 1;
+        } else {
+          currentSetting--;
         }
       }
       break;
@@ -392,11 +413,11 @@ void loop() {
       break;
     }
   }
-  Setpoint = currentAtmosPressure - (pressure.value * IN_HG_HPA);
-  Input = pressure_event.pressure;
+  double pressureDesired = pressure.value;
 
   // determine if we're in an interval
-  if (intervalStart != 0 && rampType.value == 1.0) {
+  if (intervalStart != 0 && (rampType.value == INTERVAL_MODE ||
+                             rampType.value == INTERVAL_RAMP_MODE)) {
     unsigned long curr = millis() - intervalStart;
     // check if waiting for interval to start
     if (intervalState == INTERVAL_START) {
@@ -427,10 +448,29 @@ void loop() {
       }
       intervalStart = millis();
     }
+    if (intervalState == IN_INTERVAL && rampType.value == INTERVAL_RAMP_MODE) {
+      if (intervalCount > rampTime.value) {
+        // use the set pressure
+        currentRampPressure = rampPres.value;
+      } else {
+        // slowly ramp the pressure during the interval.
+        // the fraction that will be increased per interval
+        double intervalFraction = (rampPres.value / rampTime.value);
+        // % of current interval + 1 fraction/completed interval
+        currentRampPressure =
+            ((curr) / (intervalTime.value * MS_PER_MIN)) * intervalFraction +
+            (intervalFraction * (intervalCount - 1));
+      }
+      pressureDesired += currentRampPressure;
+    }
   }
+  // update setpoint with desired pressure
+  Setpoint = currentAtmosPressure - ((pressureDesired)*IN_HG_HPA);
+  Input = pressure_event.pressure;
+  // check if we're in paused interval
   boolean isIntervalPaused = intervalStart != 0 && intervalState == PAUSED;
 
-  if (false && (isPressedShort || isPressedLong)) {
+  if (true && (isPressedShort || isPressedLong)) {
     // Serial.print(buf);
     Serial.print(" | sensor: ");
     Serial.print(sensorPressure);
@@ -445,6 +485,8 @@ void loop() {
     Serial.print(intervalStart);
     Serial.print(" ");
     Serial.print((millis() - intervalStart) / ((double)MS_PER_MIN));
+    Serial.print(" ramp ");
+    Serial.print(currentRampPressure);
 
     // Serial.print(" | set ");
     // Serial.print(Setpoint);
@@ -456,6 +498,8 @@ void loop() {
     // Serial.print(running);
     // Serial.print(" motor avg ");
     // Serial.print(motorAvg);
+    Serial.print(" | desired ");
+    Serial.print(pressureDesired);
     // Serial.print(" P ");
     // Serial.print(pressure.value);
     // Serial.print(" Kp ");
