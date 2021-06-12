@@ -8,35 +8,35 @@ char numBuf[8] = "";
 int startAddress = 0;
 
 Setting::Setting(String name,
-                 double value,
-                 double min,
-                 double max,
+                 float value,
+                 float min,
+                 float max,
                  bool persist,
-                 double slowStep,
-                 double fastStep,
+                 float slowStep,
+                 float fastStep,
                  byte displayPrecision)
     : name(name), value(value), minn(min), maxx(max), slowStep(slowStep),
       fastStep(fastStep), displayPrecision(displayPrecision), previous(value),
       persist(persist) {
   values = NULL;
-  address = (startAddress++) * sizeof(double);
+  address = (startAddress++) * sizeof(float);
 }
 
 Setting::Setting(String name,
                  String *values,
-                 double value,
-                 double min,
-                 double max,
+                 float value,
+                 float min,
+                 float max,
                  bool persist)
     : name(name), value(value), minn(min), maxx(max), values(values),
       slowStep(1), fastStep(1), displayPrecision(0), previous(value),
       persist(persist) {
-  address = (startAddress++) * sizeof(double);
+  address = (startAddress++) * sizeof(float);
 }
 
 void Setting::init() {
   if (persist) {
-    double setValue;
+    float setValue;
     EEPROM.get(address, setValue);
     Serial.print(name);
     Serial.print(" addr ");
@@ -55,7 +55,7 @@ void Setting::init() {
   }
 }
 
-double Setting::handlePressUp(boolean isLongPress) {
+float Setting::handlePressUp(boolean isLongPress) {
   if (isLongPress) {
     value += fastStep;
   } else {
@@ -67,7 +67,7 @@ double Setting::handlePressUp(boolean isLongPress) {
   return value;
 }
 
-double Setting::handlePressDown(boolean isLongPress) {
+float Setting::handlePressDown(boolean isLongPress) {
   previous = value;
   if (isLongPress) {
     value -= fastStep;
