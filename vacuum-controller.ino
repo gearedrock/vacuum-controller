@@ -10,13 +10,22 @@ Adafruit_Sensor *bmp_pressure = bmp.getPressureSensor();
 
 // select the pins used on the LCD panel
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
-byte customChars[6][8] = {
+byte customChars[][8] = {
     {B00000, B11011, B11011, B11011, B11011, B11011, B11011, B00000},
     {B00000, B01000, B01100, B01110, B01110, B01100, B01000, B00000},
     {0b11111, 0b10001, 0b01110, 0b00100, 0b00100, 0b01010, 0b10101, 0b11111},
     {0b11111, 0b10001, 0b01010, 0b00100, 0b00100, 0b01010, 0b11111, 0b11111},
     {0b01110, 0b11011, 0b11011, 0b11001, 0b11111, 0b11111, 0b01110, 0b00000},
-    {0b01110, 0b10101, 0b10101, 0b10111, 0b10001, 0b10001, 0b01110, 0b00000}};
+    {0b01110, 0b10101, 0b10101, 0b10111, 0b10001, 0b10001, 0b01110, 0b00000},
+    {0b00000, 0b11111, 0b11111, 0b11111, 0b11111, 0b11111, 0b11111, 0b00000}};
+#define NUM_CHARS 7
+#define PAUSE_CHAR '\x01'
+#define RUN_CHAR '\x02'
+#define HGLASS1_CHAR '\x03'
+#define HGLASS1_CHAR '\x04'
+#define CLOCK_INVERT_CHAR '\x05'
+#define CLOCK_CHAR '\x06'
+#define STOP_CHAR '\x07'
 
 // define some values used by the panel and buttons
 byte lcd_key = 0;
@@ -128,7 +137,7 @@ void setup() {
   Serial.println(F("BMP280 Sensor event test"));
   lcd.begin(16, 2); // start the library
   // upload custom chars
-  for (byte i = 0; i < 6; i++) {
+  for (byte i = 0; i < NUM_CHARS; i++) {
     lcd.createChar(i + 1, customChars[i]);
   }
   // set cursor to move out of programming mode
@@ -220,8 +229,8 @@ void printCurrentPressure(float eventPressure, float vacPress, bool running) {
   char vac[numLen] = "";
   char time[numLen] = "";
   toPrecision(vac, numLen, vacPress, 2);
-#define STATE_CHARS 7
-  char state[STATE_CHARS] = "     ";
+#define NUM_STATE_CHARS 7
+  char state[NUM_STATE_CHARS] = "     ";
   if (running && (rampType.value == INTERVAL_MODE ||
                   rampType.value == INTERVAL_RAMP_MODE)) {
     double curr = (millis() - intervalStart) / ((double)MS_PER_MIN);
@@ -229,28 +238,30 @@ void printCurrentPressure(float eventPressure, float vacPress, bool running) {
     switch (intervalState) {
       case PAUSED:
         snprintf(state,
-                 STATE_CHARS,
-                 "\x03%s %d  ",
-                 toPrecision(time, 6, pauseTime.value - curr, 1),
-                 intervalCount);
+                 NUM_STATE_CHARS,
+                 "%d%c%s   ",
+                 intervalCount,
+                 HGLASS1_CHAR,
+                 toPrecision(time, 6, pauseTime.value - curr, 1));
         break;
       case INTERVAL_START:
-        x = millis() % 1000 < 500 ? '\x05' : '\x06';
-        snprintf(state, STATE_CHARS, "%c %d  ", x, intervalCount);
+        x = millis() % 1000 < 500 ? CLOCK_CHAR : CLOCK_INVERT_CHAR;
+        snprintf(state, NUM_STATE_CHARS, "%d%c     ", intervalCount, x);
         break;
       case IN_INTERVAL:
         snprintf(state,
-                 STATE_CHARS,
-                 "\x06%s %d  ",
-                 toPrecision(time, numLen, intervalTime.value - curr, 1),
-                 intervalCount);
+                 NUM_STATE_CHARS,
+                 "%d%c%s   ",
+                 intervalCount,
+                 CLOCK_CHAR,
+                 toPrecision(time, numLen, intervalTime.value - curr, 1));
         break;
     }
   }
   snprintf(buf,
            bufLen,
            "%cCur:%s %s       ",
-           (running ? '\x02' : '\x01'),
+           (running ? RUN_CHAR : PAUSE_CHAR),
            vac,
            state);
   lcd.setCursor(0, 0);
