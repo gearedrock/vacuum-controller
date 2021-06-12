@@ -22,7 +22,7 @@ byte customChars[][8] = {
 #define PAUSE_CHAR '\x01'
 #define RUN_CHAR '\x02'
 #define HGLASS1_CHAR '\x03'
-#define HGLASS1_CHAR '\x04'
+#define HGLASS2_CHAR '\x04'
 #define CLOCK_INVERT_CHAR '\x05'
 #define CLOCK_CHAR '\x06'
 #define STOP_CHAR '\x07'
@@ -73,20 +73,16 @@ Setting intervalTime = Setting("Interval Tm", 10, 0, 100, true, 0.5, 5);
 Setting pauseTime = Setting("Pause Time", 2, 0, 100, true, 0.5, 5);
 Setting rampPres = Setting("Ramp Pres", 2, 0, 5, true);
 Setting rampTime = Setting("Ramp Time", 2, 0, 10, true, 1);
-Setting Kp = Setting(String("Kp"), 2);
-Setting Ki = Setting(String("Ki"), 5);
-Setting Kd = Setting(String("Kd"), 1);
+Setting intervalCount = Setting("Interval", 0, 0, 255, false, 1, 1, 0);
 Setting *settings[] = {&pressure,
                        &rampType,
                        &intervalTime,
                        &pauseTime,
                        &rampPres,
                        &rampTime,
-                       &Kp,
-                       &Ki,
-                       &Kd};
+                       &intervalCount};
 byte currentSetting = 0;
-#define numSettings 9
+#define numSettings 7
 
 enum IntervalState {
   INTERVAL_START,
@@ -94,8 +90,8 @@ enum IntervalState {
   PAUSED,
 };
 unsigned long intervalStart = 0;
+unsigned long intervalPaused = 0;
 IntervalState intervalState = INTERVAL_START;
-byte intervalCount = 0;
 double currentRampPressure = 0;
 #define INTERVAL_MODE 1.0
 #define INTERVAL_RAMP_MODE 2.0
@@ -108,9 +104,12 @@ double Setpoint, Input, Output;
 float motorAvg = 255;
 #define NUM_AVG 10
 #define MOTOR_STABLE_AMOUNT 60
+#define Kp 2
+#define Ki 5
+#define Kd 1
 
 // Specify the links and initial tuning parameters
-PID myPID(&Input, &Output, &Setpoint, Kp.value, Ki.value, Kd.value, REVERSE);
+PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, REVERSE);
 
 // read the buttonss
 byte read_LCD_buttons() {
@@ -231,28 +230,29 @@ void printCurrentPressure(float eventPressure, float vacPress, bool running) {
   toPrecision(vac, numLen, vacPress, 2);
 #define NUM_STATE_CHARS 7
   char state[NUM_STATE_CHARS] = "     ";
-  if (running && (rampType.value == INTERVAL_MODE ||
-                  rampType.value == INTERVAL_RAMP_MODE)) {
+  if (isInInterval()) {
+    char count[numLen] = "";
+    toPrecision(count, numLen, intervalCount.value, 0);
     double curr = (millis() - intervalStart) / ((double)MS_PER_MIN);
     char x = ' ';
     switch (intervalState) {
       case PAUSED:
         snprintf(state,
                  NUM_STATE_CHARS,
-                 "%d%c%s   ",
-                 intervalCount,
+                 "%s%c%s   ",
+                 count,
                  HGLASS1_CHAR,
-                 toPrecision(time, 6, pauseTime.value - curr, 1));
+                 toPrecision(time, numLen, pauseTime.value - curr, 1));
         break;
       case INTERVAL_START:
         x = millis() % 1000 < 500 ? CLOCK_CHAR : CLOCK_INVERT_CHAR;
-        snprintf(state, NUM_STATE_CHARS, "%d%c     ", intervalCount, x);
+        snprintf(state, NUM_STATE_CHARS, "%s%c     ", count, x);
         break;
       case IN_INTERVAL:
         snprintf(state,
                  NUM_STATE_CHARS,
-                 "%d%c%s   ",
-                 intervalCount,
+                 "%s%c%s   ",
+                 count,
                  CLOCK_CHAR,
                  toPrecision(time, numLen, intervalTime.value - curr, 1));
         break;
@@ -261,7 +261,8 @@ void printCurrentPressure(float eventPressure, float vacPress, bool running) {
   snprintf(buf,
            bufLen,
            "%cCur:%s %s       ",
-           (running ? RUN_CHAR : PAUSE_CHAR),
+           // run char if running, stop if no interval, pause if paused interval
+           (running ? RUN_CHAR : (intervalStart == 0 ? STOP_CHAR : PAUSE_CHAR)),
            vac,
            state);
   lcd.setCursor(0, 0);
@@ -273,7 +274,7 @@ void printCurrentSetting() {
   lcd.setCursor(0, 1);
   String state = settings[currentSetting]->getDisplayString();
 
-  if (rampType.value != 0 && currentSetting == 0 && running) {
+  if (rampType.value != 0 && currentSetting == 0 && isInInterval()) {
     state.trim();
     // add the ramp pressure
     toPrecision(vac, numLen, currentRampPressure, 1, true);
@@ -328,6 +329,11 @@ void updateButtonStates(bool *isPressedLong, bool *isPressedShort) {
     Serial.print(" long ");
     Serial.println(*isPressedLong);
   }
+}
+
+boolean isInInterval() {
+  return intervalStart != 0 && (rampType.value == INTERVAL_MODE ||
+                                rampType.value == INTERVAL_RAMP_MODE);
 }
 
 void loop() {
@@ -399,13 +405,23 @@ void loop() {
     }
     case btnSELECT: {
       if (isPressedShort) {
+        // flip run state
         running = !running;
-        if (running) {
+        // if we're running and the interval has no value (initial), init all
+        if (running && intervalStart == 0) {
           intervalStart = millis();
           intervalState = INTERVAL_START;
-        } else {
-          intervalStart = 0;
+        } else if (!running) {
+          // the time at which we paused the interval
+          intervalPaused = millis();
         }
+      } else if (isPressedLong) {
+        // on long press reset all interval params
+        running = false;
+        intervalStart = 0;
+        intervalCount.value = 0;
+        intervalPaused = 0;
+        intervalState = INTERVAL_START;
       }
       break;
     }
@@ -425,10 +441,18 @@ void loop() {
   }
   double pressureDesired = pressure.value;
 
+  // capture millis as now for stability
+  unsigned long now = millis();
+
   // determine if we're in an interval
-  if (intervalStart != 0 && (rampType.value == INTERVAL_MODE ||
-                             rampType.value == INTERVAL_RAMP_MODE)) {
-    unsigned long curr = millis() - intervalStart;
+  if (!running && isInInterval() && intervalState != PAUSED) {
+    // advance the start time by how long we we've been paused
+    intervalStart = intervalStart + (now - intervalPaused);
+    // update pause start
+    intervalPaused = now;
+  }
+  if (running && isInInterval()) {
+    unsigned long curr = now - intervalStart;
     // check if waiting for interval to start
     if (intervalState == INTERVAL_START) {
       // check if the motor has stabilized yet (or very close to)
@@ -440,10 +464,10 @@ void loop() {
       if (motorAvg < MOTOR_STABLE_AMOUNT) {
         // start interval
         intervalState = IN_INTERVAL;
-        intervalCount++;
+        intervalCount.value++;
       } else {
         // we're not there yet, advance start time
-        intervalStart = millis();
+        intervalStart = now;
       }
     }
     // check if time has advanced to next start
@@ -456,10 +480,10 @@ void loop() {
       } else {
         intervalState = PAUSED;
       }
-      intervalStart = millis();
+      intervalStart = now;
     }
     if (intervalState == IN_INTERVAL && rampType.value == INTERVAL_RAMP_MODE) {
-      if (intervalCount > rampTime.value) {
+      if (intervalCount.value > rampTime.value) {
         // use the set pressure
         currentRampPressure = rampPres.value;
       } else {
@@ -469,14 +493,14 @@ void loop() {
         // % of current interval + 1 fraction/completed interval
         currentRampPressure =
             ((curr) / (intervalTime.value * MS_PER_MIN)) * intervalFraction +
-            (intervalFraction * (intervalCount - 1));
+            (intervalFraction * (intervalCount.value - 1));
       }
       pressureDesired += currentRampPressure;
     }
   }
 
   if (running && rampType.value == WAVES_MODE) {
-    currentRampPressure = sin(millis() / 1000) * 1.5;
+    currentRampPressure = sin(now / 1000) * 1.5;
     pressureDesired += currentRampPressure;
   }
 
@@ -499,7 +523,7 @@ void loop() {
     Serial.print(isIntervalPaused);
     Serial.print(" start ");
     Serial.print(intervalStart);
-    Serial.print(" ");
+    Serial.print(" duration ");
     Serial.print((millis() - intervalStart) / ((double)MS_PER_MIN));
     Serial.print(" ramp ");
     Serial.print(currentRampPressure);
@@ -527,7 +551,7 @@ void loop() {
     Serial.println();
   }
   if (running && !isIntervalPaused) {
-    myPID.SetTunings(Kp.value, Ki.value, Kd.value);
+    myPID.SetTunings(Kp, Ki, Kd);
     myPID.Compute();
     if (Output <= MOTOR_MIN) {
       Output = 0;
