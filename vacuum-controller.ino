@@ -73,6 +73,7 @@ Setting intervalTime = Setting("Interval Tm", 10, 0, 100, true, 0.5, 5);
 Setting pauseTime = Setting("Pause Time", 2, 0, 100, true, 0.5, 5);
 Setting rampPres = Setting("Ramp Pres", 2, 0, 5, true);
 Setting rampTime = Setting("Ramp Time", 2, 0, 10, true, 1);
+Setting initialPressureAdd = Setting("Init Press+", 3, 0, 12, true);
 Setting intervalCount = Setting("Interval", 0, 0, 255, false, 1, 1, 0);
 Setting *settings[] = {&pressure,
                        &rampType,
@@ -80,9 +81,10 @@ Setting *settings[] = {&pressure,
                        &pauseTime,
                        &rampPres,
                        &rampTime,
+                       &initialPressureAdd,
                        &intervalCount};
 byte currentSetting = 0;
-#define numSettings 7
+#define numSettings 8
 
 enum IntervalState {
   INTERVAL_START,
@@ -96,6 +98,9 @@ double currentRampPressure = 0;
 #define INTERVAL_MODE 1.0
 #define INTERVAL_RAMP_MODE 2.0
 #define WAVES_MODE 3.0
+// how long to overpressure (to settle the pump)
+#define INITIAL_PRESSURE_WAIT 5000
+boolean isInOverpressure = false;
 
 #include <PID_v1.h>
 
@@ -133,6 +138,7 @@ byte read_LCD_buttons() {
 
 void setup() {
   Serial.begin(9600);
+
   Serial.println(F("BMP280 Sensor event test"));
   lcd.begin(16, 2); // start the library
   // upload custom chars
@@ -193,6 +199,7 @@ void setup() {
     lcd.print("Current pressure bad");
     delay(1000);
   }
+  Serial.print('c');
   Serial.println(currentAtmosPressure);
   Serial.println("Settings");
   for (byte i = 0; i < numSettings; ++i) {
@@ -274,10 +281,19 @@ void printCurrentSetting() {
   lcd.setCursor(0, 1);
   String state = settings[currentSetting]->getDisplayString();
 
-  if (rampType.value != 0 && currentSetting == 0 && isInInterval()) {
+  // display overpressure and/or ramp pressure
+  boolean isRamp = rampType.value != 0 && isInInterval();
+  if (currentSetting == 0 && (isRamp || isInOverpressure)) {
     state.trim();
+    double addlPressure = 0;
+    if (isRamp) {
+      addlPressure += currentRampPressure;
+    }
+    if (isInOverpressure) {
+      addlPressure += initialPressureAdd.value;
+    }
     // add the ramp pressure
-    toPrecision(vac, numLen, currentRampPressure, 1, true);
+    toPrecision(vac, numLen, addlPressure, 1, true);
     state += vac;
   }
   lcd.print(state);
@@ -504,6 +520,13 @@ void loop() {
     pressureDesired += currentRampPressure;
   }
 
+  isInOverpressure = false;
+  if (running && (intervalStart - now) < INITIAL_PRESSURE_WAIT) {
+    // if we're less than 5s in, dial up the pressure to let the pump settle in
+    pressureDesired += initialPressureAdd.value;
+    isInOverpressure = true;
+  }
+
   // update setpoint with desired pressure
   Setpoint = currentAtmosPressure - ((pressureDesired)*IN_HG_HPA);
   Input = pressure_event.pressure;
@@ -512,41 +535,41 @@ void loop() {
 
   if (true && (isPressedShort || isPressedLong)) {
     // Serial.print(buf);
-    Serial.print(" | sensor: ");
+    Serial.print(" | sensor:");
     Serial.print(sensorPressure);
-    Serial.print(" vacuum: ");
+    Serial.print(" vacuum:");
     Serial.print(vacPress);
 
-    Serial.print(" | interval state ");
+    Serial.print(" | interval state:");
     Serial.print(intervalState);
-    Serial.print(" paused? ");
+    Serial.print(" paused?:");
     Serial.print(isIntervalPaused);
-    Serial.print(" start ");
-    Serial.print(intervalStart);
-    Serial.print(" duration ");
-    Serial.print((millis() - intervalStart) / ((double)MS_PER_MIN));
-    Serial.print(" ramp ");
+    // Serial.print(" start:");
+    // Serial.print(intervalStart);
+    // Serial.print(" duration:");
+    // Serial.print((millis() - intervalStart) / ((double)MS_PER_MIN));
+    Serial.print(" ramp:");
     Serial.print(currentRampPressure);
 
-    // Serial.print(" | set ");
+    // Serial.print(" | set:");
     // Serial.print(Setpoint);
-    // Serial.print(" in ");
+    // Serial.print(" in:");
     // Serial.print(Input);
-    // Serial.print(" out ");
+    // Serial.print(" out:");
     // Serial.print(Output);
-    // Serial.print(" run ");
+    // Serial.print(" run:");
     // Serial.print(running);
-    // Serial.print(" motor avg ");
+    // Serial.print(" motor avg:");
     // Serial.print(motorAvg);
-    Serial.print(" | desired ");
+    Serial.print(" | desired:");
     Serial.print(pressureDesired);
-    // Serial.print(" P ");
+    // Serial.print(" P:");
     // Serial.print(pressure.value);
-    // Serial.print(" Kp ");
+    // Serial.print(" Kp:");
     // Serial.print(Kp.value);
-    // Serial.print(" Ki ");
+    // Serial.print(" Ki:");
     // Serial.print(Ki.value);
-    // Serial.print(" Kd ");
+    // Serial.print(" Kd:");
     // Serial.print(Kd.value);
     Serial.println();
   }
