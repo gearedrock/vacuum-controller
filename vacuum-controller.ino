@@ -280,10 +280,9 @@ void printCurrentPressure(float eventPressure, float vacPress, bool running) {
 char numberBuf[numLen] = "";
 char buf[17] = "";
 void printCurrentSetting() {
-  Serial.println("printCurrentSetting");
   lcd.setCursor(0, 1);
   String state = settings[currentSetting]->getDisplayString(buf, 17);
-  Serial.println(state);
+
   // display overpressure and/or ramp pressure
   if (currentSetting == 0) {
     if (rampType.value > INTERVAL_MODE) {
@@ -298,7 +297,7 @@ void printCurrentSetting() {
       state = snprintf(buf, 17, "Init Press %s      ", numberBuf);
     }
   }
-  Serial.println(state);
+
   lcd.print(state);
 }
 
