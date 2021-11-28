@@ -27,7 +27,7 @@ public:
           bool persist = false);
   float handlePressUp(boolean isLongPress);
   float handlePressDown(boolean isLongPress);
-  String getDisplayString();
+  char *getDisplayString(char *buf, byte len);
   void init();
   void handleUpdate();
 };

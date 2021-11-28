@@ -3,7 +3,6 @@
 #include <Arduino.h>
 #include <EEPROM.h>
 
-char buf[17] = "";
 char numBuf[8] = "";
 int startAddress = 0;
 
@@ -80,28 +79,28 @@ float Setting::handlePressDown(boolean isLongPress) {
   return value;
 }
 
-String Setting::getDisplayString() {
+char *Setting::getDisplayString(char *buf, byte len) {
   if (values != NULL) {
     String currVal = values[(long)value];
-    snprintf(buf, 17, "%s %s           ", name.c_str(), currVal.c_str());
+    snprintf(buf, len, "%s %s           ", name.c_str(), currVal.c_str());
   } else {
     // format number
     char *num = toPrecision(numBuf, 8, value, displayPrecision);
     // display name number with extra spaces to clear the line
-    snprintf(buf, 17, "%s %s           ", name.c_str(), num);
+    snprintf(buf, len, "%s %s           ", name.c_str(), num);
   }
-  return String(buf);
+  return buf;
 }
 
 void Setting::handleUpdate() {
   if (persist && previous != value) {
-    Serial.print("Updating ");
+    Serial.print(F("Updating "));
     Serial.print(name);
-    Serial.print(" address ");
+    Serial.print(F(" address "));
     Serial.print(address);
-    Serial.print(" val ");
+    Serial.print(F(" val "));
     Serial.print(value);
-    Serial.print(" prev ");
+    Serial.print(F(" prev "));
     Serial.println(previous);
     EEPROM.put(address, value);
     previous = value;

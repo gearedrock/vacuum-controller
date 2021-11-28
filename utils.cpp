@@ -7,7 +7,8 @@ char *toPrecision(char *buffer,
                   byte precision,
                   boolean leadingPlus) {
   if (precision == 0) {
-    snprintf(buffer, len, leadingPlus ? "+%d" : "%d", (int)value);
+    snprintf(
+        buffer, len, (leadingPlus && !(value < 0)) ? "+%d" : "%d", (int)value);
   } else if (precision == 1) {
     int v = (int)abs(value * 10);
     String formatString = "%d.%d";
